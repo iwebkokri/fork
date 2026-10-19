@@ -6,7 +6,7 @@ It lives inside the existing React app (`admin/`), under **`/order`**, with its 
 
 | URL (dev) | What |
 |---|---|
-| http://localhost:3000/order | Home: search, filters (open now, delivery, pickup, cuisine), restaurants and stores |
+| http://localhost:3000/order | Home: a Delivery / Pickup switch, search, filters (open now, cuisine), restaurants and stores |
 | /order/r/:slug | Restaurant page and menu, item dialog (modifiers, notes), cart |
 | /order/login | Sign in / Create account (`?next=/order/checkout`, `?tab=register`) |
 | /order/handoff?token=... | Landing page of the assistant checkout hand-off (see below) |
@@ -68,6 +68,7 @@ Idle sign-out: 30 minutes without input signs the customer out (`REACT_APP_IDLE_
 
 ## Checkout details
 
+* **Delivery / Pickup switch** (component `components/FulfilmentToggle.jsx`, choice in `lib/fulfilment.js`): on the home page banner and in the checkout. The chosen side shows its icon and its title, the other side only its icon (its name is the tooltip and the screen reader label). On the home page it decides which places are listed (`fulfilment=delivery` or `pickup` in `GET /public/search`; delivery is the default) and is kept in the browser (`sf.fulfilment`); a link with `?f=pickup` or `?f=delivery` wins. The checkout starts with that choice when the place offers it; switching there changes only that order.
 * **Delivery or pickup** follows the restaurant's service mode: pickup-only stores disable Delivery, closed stores block the order, delivery also depends on the address being in range (the quote refuses it with a message shown under the address).
 * **Address**: saved addresses or a new one. **There is no geocoding provider connected** (no map key): an address gets its coordinates from a list of demo areas, one per delivery zone of Mississauga, Brampton, Edmonton and Winnipeg (approximate; the address is saved with the province of the area) or from coordinates typed in by hand. The page says so. The "Deliver to" area in the header drives which restaurants can deliver to you.
 * **Delivery instructions**: Hand it to me / Meet outside / Leave at my door, **"Use a private delivery PIN"** switch (default on; disabled for leave-at-door, which always uses a photo), driver note (300), gate code (40, validated like the API), suggestion chips from `GET /public/delivery-options`. See `docs/proof-of-delivery.md`.

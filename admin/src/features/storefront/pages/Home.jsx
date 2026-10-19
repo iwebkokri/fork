@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import FulfilmentToggle from "../components/FulfilmentToggle";
 import PushBanner from "../components/PushBanner";
 import RestaurantCard from "../components/RestaurantCard";
 import { ErrorBox, Loading, Ri, Spinner } from "../components/ui";
+import { setFulfilment, useSfFulfilment } from "../lib/fulfilment";
 import { locParams, useSfLocation } from "../lib/location";
 import { errorMessage, sfHttp } from "../lib/sfApi";
 
@@ -14,7 +16,9 @@ export default function Home({ openAssistant }) {
   const [params, setParams] = useSearchParams();
   const q = params.get("q") || "";
   const openNow = params.get("open") === "1";
-  const fulfilment = ["delivery", "pickup"].includes(params.get("f")) ? params.get("f") : "";
+  // delivery or pickup: the switch under the title (kept in the browser); a link with ?f=pickup or ?f=delivery wins
+  const savedFulfilment = useSfFulfilment();
+  const fulfilment = ["delivery", "pickup"].includes(params.get("f")) ? params.get("f") : savedFulfilment;
   const cuisine = params.get("c") || "";
   // kind of store: one type (t=GROCERY) or a whole group (v=RETAIL | FOOD); neither = every store
   const storeType = /^[A-Z_]{3,20}$/.test(params.get("t") || "") ? params.get("t") : "";
@@ -100,7 +104,7 @@ export default function Home({ openAssistant }) {
   const vertTile = vertical ? (types?.verticals || []).find((v) => v.vertical === vertical) : null;
   const activeType = typeTiles.find((t) => t.type === storeType);
   // "Groceries and shops": a row of shops above the list, only on the unfiltered home page and when food places exist as well
-  const retailRow = !storeType && !vertical && !q && !openNow && !fulfilment && !cuisine ? home?.sections?.retail || [] : [];
+  const retailRow = !storeType && !vertical && !q && !openNow && fulfilment === "delivery" && !cuisine ? home?.sections?.retail || [] : [];
   const showRetailRow = retailRow.length > 0 && (home?.sections?.food || []).length > 0;
   const heading = q ? `Results for "${q}"` : activeType ? `${activeType.pluralLabel} near you` : vertTile ? `${vertTile.label} near you` : "Restaurants and stores near you";
 
@@ -108,7 +112,10 @@ export default function Home({ openAssistant }) {
     <div className="sf-container">
       <section className="sf-hero">
         <h1>Food and groceries from local places, delivered.</h1>
-        <p>Mississauga and Brampton restaurants, cafes and convenience stores.</p>
+        <p>Restaurants, cafes, grocery and convenience stores near you.</p>
+        <div className="sf-hero-mode">
+          <FulfilmentToggle value={fulfilment} onBrand testIdPrefix="filter" onChange={(v) => { setFulfilment(v); set({ f: "" }); }} />
+        </div>
         <form className="sf-search" role="search" onSubmit={(e) => { e.preventDefault(); set({ q: text.trim() }); }}>
           <Ri name="search-line" />
           <input type="search" value={text} onChange={(e) => setText(e.target.value)} placeholder="Search stores, dishes or products" aria-label="Search" data-testid="search-input" maxLength={80} />
@@ -151,12 +158,6 @@ export default function Home({ openAssistant }) {
       <div className="sf-filters" role="group" aria-label="Filters">
         <button type="button" className={`sf-chip ${openNow ? "on" : ""}`} aria-pressed={openNow} onClick={() => set({ open: openNow ? "" : "1" })} data-testid="filter-open">
           <Ri name="door-open-line" /> Open now
-        </button>
-        <button type="button" className={`sf-chip ${fulfilment === "delivery" ? "on" : ""}`} aria-pressed={fulfilment === "delivery"} onClick={() => set({ f: fulfilment === "delivery" ? "" : "delivery" })} data-testid="filter-delivery">
-          <Ri name="e-bike-2-line" /> Delivery
-        </button>
-        <button type="button" className={`sf-chip ${fulfilment === "pickup" ? "on" : ""}`} aria-pressed={fulfilment === "pickup"} onClick={() => set({ f: fulfilment === "pickup" ? "" : "pickup" })} data-testid="filter-pickup">
-          <Ri name="walk-line" /> Pickup
         </button>
         {cuisines.slice(0, 12).map((c) => (
           <button key={c.id} type="button" className={`sf-chip ${cuisine === c.slug ? "on" : ""}`} aria-pressed={cuisine === c.slug} onClick={() => set({ c: cuisine === c.slug ? "" : c.slug })}>

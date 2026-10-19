@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import AddressSearch from "../components/AddressSearch";
 import { CartLines, RetailCartNotes } from "../components/CartPanel";
+import FulfilmentToggle from "../components/FulfilmentToggle";
 import PaymentSection from "../components/PaymentSection";
 import { Dialog, ErrorBox, Loading, Notice, Ri, Spinner, useToast } from "../components/ui";
+import { getFulfilment } from "../lib/fulfilment";
 import { addressSearchEnabled } from "../lib/geocode";
 import { DEMO_LOCATIONS, setLocation, useSfLocation } from "../lib/location";
 import { basketText } from "../lib/retail";
@@ -188,7 +190,9 @@ export default function Checkout() {
   // ---- default fulfilment, prefilled kitchen note (handoff) and promo
   useEffect(() => {
     if (!rest || mode) return;
-    setMode(rest.deliveryAvailable ? "DELIVERY" : rest.pickupAvailable ? "PICKUP" : "");
+    // starts with what the customer chose on the home page (delivery or pickup) when this place offers it
+    const wantsPickup = getFulfilment() === "pickup";
+    setMode(wantsPickup && rest.pickupAvailable ? "PICKUP" : rest.deliveryAvailable ? "DELIVERY" : rest.pickupAvailable ? "PICKUP" : "");
   }, [rest, mode]);
   useEffect(() => {
     if (!restId || noteInit.current) return;
@@ -377,16 +381,7 @@ export default function Checkout() {
           </Section>
 
           <Section n={2} title="Delivery or pickup">
-            <div className="sf-seg" role="radiogroup" aria-label="Delivery or pickup">
-              <button type="button" role="radio" aria-checked={delivery} className={delivery ? "on" : ""} disabled={!rest.deliveryAvailable} onClick={() => setMode("DELIVERY")} data-testid="mode-delivery">
-                <Ri name="e-bike-2-line" /> Delivery
-                {!rest.deliveryAvailable && <span className="sf-small"> (not available)</span>}
-              </button>
-              <button type="button" role="radio" aria-checked={mode === "PICKUP"} className={mode === "PICKUP" ? "on" : ""} disabled={!rest.pickupAvailable} onClick={() => setMode("PICKUP")} data-testid="mode-pickup">
-                <Ri name="walk-line" /> Pickup
-                {!rest.pickupAvailable && <span className="sf-small"> (not available)</span>}
-              </button>
-            </div>
+            <FulfilmentToggle value={delivery ? "delivery" : mode === "PICKUP" ? "pickup" : ""} testIdPrefix="mode" unavailable={{ delivery: !rest.deliveryAvailable, pickup: !rest.pickupAvailable }} onChange={(v) => setMode(v === "pickup" ? "PICKUP" : "DELIVERY")} />
             {!rest.deliveryAvailable && rest.pickupAvailable && <p className="sf-small sf-muted mt-2 mb-0">{rest.serviceMode === "PICKUP_ONLY" ? `${rest.name} is pickup only right now.` : "Delivery is not available right now."}</p>}
             {mode === "PICKUP" && <p className="sf-small sf-muted mt-2 mb-0">You collect the order at the store. You get a pickup code after you place it.</p>}
           </Section>

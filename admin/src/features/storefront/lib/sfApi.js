@@ -17,6 +17,7 @@ export const SF_KEYS = {
   lastActive: "sf.lastActive",
   guestCart: "sf.cart.v1",
   location: "sf.location",
+  fulfilment: "sf.fulfilment",
   handoff: "sf.handoff",
   orderNote: "sf.orderNote",
   botSession: "sf.bot.session",
