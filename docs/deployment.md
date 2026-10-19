@@ -89,6 +89,8 @@ Two entity-writing rules that keep `migration:check` quiet: do not set `enumName
 
 A site without restaurants can show three demo stores (a supermarket, an Asian market, a halal butcher) so there is something to look at: `docker compose --env-file deploy/.env exec -e DEMO_STORES_PASSWORD='...'
 api node dist/database/seed-demo-stores` (the password of their demo owner accounts, at least 12 characters, there is no default), and `... node dist/database/seed-demo-stores --remove` takes them out again.
+To fill every delivery zone (Mississauga, Brampton and, with three zones each, Edmonton and Winnipeg) with a few demo restaurants, cafes and stores, run `... node dist/database/seed-demo-locations` the same way
+(45 places, one owner account each, `--remove` takes them out; the cities and zones stay).
 Details: docs/store-types.md ("Demo data").
 
 ## Updating a running system

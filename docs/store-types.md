@@ -187,9 +187,25 @@ run twice, and never uses the public demo password: `DEMO_STORES_PASSWORD` is re
 `kitchen27@` ... `stores.forky.ca`: **not** the `@demo-restaurant.ca` of `npm run seed`, because a production API refuses to start while any `@demo-restaurant.ca` or `@demo.forky.ca` account exists in its database). `--remove` deletes the stores with their menus, hours, documents, merchants and those accounts; it refuses (and changes nothing) when an order, ledger
 entry, review or support ticket exists for them, then suspend the stores in the Admin Console instead. The demo products have no photos: add them in the portal (Catalog > Edit > Photos).
 
+**A few places in every location** (`seed:demo-locations`): 45 made-up places, two restaurants or cafes and one store in each of the 15 delivery zones: the nine of Mississauga and Brampton, and three each
+in Edmonton (Downtown Edmonton, West Edmonton, Millwoods) and Winnipeg (Downtown Winnipeg, Fort Garry, Transcona). The stores are supermarkets, Asian markets, halal butchers, bakeries and convenience stores, so
+every store type shows up. They reuse the menus of the other demo places (a pizzeria in Edmonton has the menu of the one in Brampton) and are not marked as new.
+
+```
+DEMO_STORES_PASSWORD='<at least 12 characters>' npm run seed:demo-locations           # production image: node dist/database/seed-demo-locations
+npm run seed:demo-locations -- --remove                                               # take them out again
+```
+
+Like `seed:demo-stores`: database only, adds what is missing, safe to run twice, password required. It also fills in the zones: Edmonton and Winnipeg are used as they are when the site already has them (their
+fees, hours and time zone are not touched; the command says so when a city is switched off, because its places only show once the city is active) and are created like Brampton, with the pricing of Mississauga,
+when it does not. Each place has its own merchant and **one owner account** (`owner30@` ... `owner74@stores.forky.ca`, same password, no staff accounts). `--remove` takes the places, merchants and owner accounts
+out (under the same refusal rule); the cities and zones stay, remove them in the Admin Console (Cities & Zones) if you do not want them. The tax of the platform is one default class (`taxes.defaultTaxClass`, HST_ON 13 percent):
+orders in Edmonton and Winnipeg are taxed with it until you add the tax classes of Alberta and Manitoba (Pricing & Tax, Tax Classes) and set them per product.
+
 ## Tests
 
 * `npx ts-node --transpile-only test/store-types.test.ts`: profiles, filter parsing, weight and basket maths, the status words, stock bookkeeping against a fake database (also runs in CI).
+* `npx ts-node --transpile-only test/demo-locations.test.ts`: the table of the 45 demo places is consistent with the rest of the seed data: unique names, merchants, menus, cuisines, tiers, zones, postal codes (also runs in CI).
 * `node backend/test/store-types-e2e.mjs`: about 170 checks over HTTP: discovery, catalog, portal catalog management, cart and quote, stock, the last-eggs race, picking, ID check at the door, onboarding.
 * `node backend/test/openapi-docs-e2e.mjs`: the Swagger page serves the OpenAPI file and says what the exported file says.
 
