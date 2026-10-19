@@ -71,7 +71,7 @@ function Shell() {
       </main>
       <footer className="sf-footer">
         <div className="sf-container">
-          <span>FORKSY - Mississauga and Brampton</span>
+          <span>FORKSY - Mississauga, Brampton, Edmonton and Winnipeg</span>
           <span className="sf-muted">Payments by Stripe. Development site: test payments only.</span>
         </div>
       </footer>

@@ -291,6 +291,20 @@ textarea.sf-input { min-height: 72px; resize: vertical; }
 .sf-co-layout { display: grid; gap: 14px; }
 .sf-section { margin-bottom: 12px; }
 .sf-step { display: inline-flex; width: 24px; height: 24px; border-radius: 50%; background: var(--sf-brand); color: #fff; font-size: 13px; align-items: center; justify-content: center; margin-right: 6px; }
+/* Delivery / Pickup switch: the chosen side has its icon and title, the other side its icon only */
+.sf-toggle { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: #efebe7; }
+.sf-toggle button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 44px; min-height: 44px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--sf-muted); font-weight: 700; font-size: 15px; cursor: pointer; transition: background 0.18s ease, color 0.18s ease, padding 0.18s ease; }
+.sf-toggle button i { font-size: 20px; line-height: 1; }
+.sf-toggle button:hover:not(:disabled):not(.on) { background: rgba(0, 0, 0, 0.06); color: var(--sf-ink); }
+.sf-toggle button.on { background: var(--sf-brand); color: #fff; padding: 0 18px; cursor: default; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+.sf-toggle button:disabled { opacity: 0.45; cursor: not-allowed; }
+.sf-toggle button:focus-visible { outline: 2px solid var(--sf-brand-dark); outline-offset: 2px; }
+.sf-toggle-brand { background: rgba(255, 255, 255, 0.28); }
+.sf-toggle-brand button { color: #fff; }
+.sf-toggle-brand button:hover:not(:disabled):not(.on) { background: rgba(255, 255, 255, 0.2); color: #fff; }
+.sf-toggle-brand button.on { background: #fff; color: var(--sf-brand-dark); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16); }
+.sf-toggle-brand button:focus-visible { outline-color: #fff; }
+.sf-hero-mode { margin: 4px 0 12px; }
 .sf-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .sf-seg button { min-height: 48px; border-radius: 12px; border: 1px solid var(--sf-line); background: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 6px; }
 .sf-seg button.on { border-color: var(--sf-brand); background: var(--sf-brand-soft); color: var(--sf-brand-dark); }
