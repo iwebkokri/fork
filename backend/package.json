@@ -47,7 +47,7 @@
     "class-validator": "^0.14.1",
     "helmet": "^8.0.0",
     "jose": "^5.10.0",
-    "otplib": "^12.0.1",
+    "otplib": "^13.5.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.12.0",
