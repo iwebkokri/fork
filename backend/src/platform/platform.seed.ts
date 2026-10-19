@@ -21,7 +21,7 @@ const CITIES: Partial<City>[] = [
 ];
 
 /** Real Mississauga neighbourhoods used as demo delivery zones. */
-const ZONES: { name: string; lat: number; lng: number; targetDrivers: number }[] = [
+export const ZONES: { name: string; lat: number; lng: number; targetDrivers: number }[] = [
   { name: 'City Centre', lat: 43.5905, lng: -79.6438, targetDrivers: 40 },
   { name: 'Port Credit', lat: 43.5606, lng: -79.5877, targetDrivers: 20 },
   { name: 'Streetsville', lat: 43.5779, lng: -79.7156, targetDrivers: 15 },
@@ -30,12 +30,68 @@ const ZONES: { name: string; lat: number; lng: number; targetDrivers: number }[]
 ];
 
 /** Brampton delivery zones (same generous box footprint as the Mississauga ones). */
-const BRAMPTON_ZONES: { name: string; lat: number; lng: number; targetDrivers: number }[] = [
+export const BRAMPTON_ZONES: { name: string; lat: number; lng: number; targetDrivers: number }[] = [
   { name: 'Downtown Brampton', lat: 43.6875, lng: -79.76, targetDrivers: 25 },
   { name: 'Bramalea', lat: 43.716, lng: -79.723, targetDrivers: 25 },
   { name: 'Springdale', lat: 43.76, lng: -79.708, targetDrivers: 15 },
   { name: 'Heart Lake', lat: 43.75, lng: -79.82, targetDrivers: 15 },
 ];
+
+/**
+ * Edmonton and Winnipeg for the demo places of every location (`seed:demo-locations`): three zones each. A city that exists is used as it is (a site that added them in the
+ * Admin Console keeps its own fees and hours); a missing one is created like Brampton, with the pricing of Mississauga. Not part of `seedPlatform`: a site that does not serve
+ * these cities should not get them.
+ */
+export const DEMO_ZONES: { city: string; province: string; timezone: string; centerLat: number; centerLng: number; zones: { name: string; lat: number; lng: number; targetDrivers: number }[] }[] = [
+  {
+    city: 'Edmonton',
+    province: 'AB',
+    timezone: 'America/Edmonton',
+    centerLat: 53.5461,
+    centerLng: -113.4938,
+    zones: [
+      { name: 'Downtown Edmonton', lat: 53.5444, lng: -113.4909, targetDrivers: 20 },
+      { name: 'West Edmonton', lat: 53.5225, lng: -113.6242, targetDrivers: 15 },
+      { name: 'Millwoods', lat: 53.463, lng: -113.42, targetDrivers: 10 },
+    ],
+  },
+  {
+    city: 'Winnipeg',
+    province: 'MB',
+    timezone: 'America/Winnipeg',
+    centerLat: 49.8954,
+    centerLng: -97.1385,
+    zones: [
+      { name: 'Downtown Winnipeg', lat: 49.8951, lng: -97.1384, targetDrivers: 20 },
+      { name: 'Fort Garry', lat: 49.811, lng: -97.15, targetDrivers: 10 },
+      { name: 'Transcona', lat: 49.887, lng: -96.966, targetDrivers: 10 },
+    ],
+  },
+];
+
+/** Idempotent: finds the cities by name and the zones by city + name, creates what is missing. Returns the names of the zones it created. */
+export async function seedDemoZones(ds: DataSource): Promise<string[]> {
+  const cityRepo = ds.getRepository(City);
+  const zoneRepo = ds.getRepository(Zone);
+  const made: string[] = [];
+  for (const spec of DEMO_ZONES) {
+    let city = await cityRepo.findOne({ where: { name: spec.city } });
+    if (!city) {
+      const base = await cityRepo.findOne({ where: { name: 'Mississauga' } });
+      const { id: _i, createdAt: _c, updatedAt: _u, ...rest } = (base ?? {}) as any;
+      const data: Partial<City> = { ...rest, name: spec.city, province: spec.province, country: 'Canada', timezone: spec.timezone, currency: 'CAD', active: true, centerLat: spec.centerLat, centerLng: spec.centerLng };
+      city = await cityRepo.save(cityRepo.create(data));
+      console.log(`  + city ${spec.city}`);
+    } else if (!city.active) console.log(`  ! ${spec.city} is switched off: its demo places only show once the city is active`);
+    for (const z of spec.zones) {
+      if (await zoneRepo.findOne({ where: { cityId: city.id, name: z.name } })) continue;
+      await zoneRepo.save(zoneRepo.create({ cityId: city.id, name: z.name, active: true, polygon: box(z.lat, z.lng), centerLat: z.lat, centerLng: z.lng, targetDrivers: z.targetDrivers, serviceHours: {} }));
+      made.push(z.name);
+      console.log(`  + zone ${z.name} (${spec.city})`);
+    }
+  }
+  return made;
+}
 
 const TAX_CLASSES: Partial<TaxClass>[] = [
   { code: 'HST_ON', name: 'Ontario HST', ratePct: 13, active: true, isDefault: true },
@@ -50,7 +106,7 @@ const TIERS: Partial<CommissionTier>[] = [
 ];
 
 /** 20+ cuisines, slugs stable so downstream seeds (restaurants) can look them up. */
-const CUISINES = [
+export const CUISINES = [
   'Pizza', 'Burgers', 'Sushi', 'Chinese', 'Indian', 'Thai', 'Italian', 'Mexican', 'Mediterranean', 'Greek',
   'Vietnamese', 'Korean', 'Japanese', 'Caribbean', 'Middle Eastern', 'BBQ', 'Vegan', 'Breakfast', 'Sandwiches',
   'Desserts', 'Coffee & Tea', 'Seafood', 'Halal', 'Wings', 'Salads', 'Bubble Tea',

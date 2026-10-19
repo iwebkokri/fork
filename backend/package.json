@@ -22,7 +22,9 @@
     "migrate:prod": "node dist/database/migrate",
     "seed:prod": "node dist/database/seed",
     "seed:demo-stores": "ts-node -r tsconfig-paths/register src/database/seed-demo-stores.ts",
-    "seed:demo-stores:prod": "node dist/database/seed-demo-stores"
+    "seed:demo-stores:prod": "node dist/database/seed-demo-stores",
+    "seed:demo-locations": "ts-node -r tsconfig-paths/register src/database/seed-demo-locations.ts",
+    "seed:demo-locations:prod": "node dist/database/seed-demo-locations"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

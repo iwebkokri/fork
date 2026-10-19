@@ -32,6 +32,8 @@ jobs:
         run: npx ts-node --transpile-only test/maps.test.ts
       - name: Store types (profiles, filters, weight and basket maths, status words, stock bookkeeping with a fake database)
         run: npx ts-node --transpile-only test/store-types.test.ts
+      - name: Demo places of every zone (unique names and merchants, menus, cuisines, tiers, zones, postal codes)
+        run: npx ts-node --transpile-only test/demo-locations.test.ts
       - name: CORS allow-list (exact origins, https://*.example.com subdomain entries, look-alikes, the production rule)
         run: npx ts-node --transpile-only test/cors.test.ts
       - name: Unit tests - website settings (schema, validation, robots / sitemap / llms.txt / structured data generators)

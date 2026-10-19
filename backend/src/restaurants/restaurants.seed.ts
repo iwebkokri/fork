@@ -23,6 +23,7 @@ import { SeedOptions } from '../database/seed-types';
 import { slugify } from './restaurants.util';
 import { EXTRA_DEFS, EXTRA_MENUS } from './restaurants.seed-extra';
 import { STORE_DEFS, STORE_MENUS } from './restaurants.seed-stores';
+import { LOCATION_DEFS } from './restaurants.seed-locations';
 
 /** [name, price, description, dietary tags, allergens, tax class, catalog fields (SKU, barcode, weight, stock, age... see restaurants.seed-stores.ts)] */
 export type Item = [name: string, price: number, description: string, tags?: string[], allergens?: string[], taxClass?: string, extra?: Partial<MenuItem>];
@@ -32,7 +33,7 @@ export type Menu = { categories: Cat[]; groups: Group[] };
 
 export const SIZE: Group = { name: 'Size', required: true, min: 1, max: 1, options: [['Regular', 0], ['Large', 3]], appliesTo: [] };
 
-const MENUS: Record<string, Menu> = {
+export const MENUS: Record<string, Menu> = {
   pizza: {
     categories: [
       { name: 'Pizzas', station: 'Oven', items: [['Margherita', 15.5, 'Tomato, mozzarella, basil', ['vegetarian'], ['gluten', 'dairy']], ['Pepperoni', 17.5, 'Double pepperoni, mozzarella', [], ['gluten', 'dairy']], ['Hawaiian', 17, 'Ham, pineapple', [], ['gluten', 'dairy']], ['Veggie Supreme', 17.5, 'Peppers, mushrooms, olives, onion', ['vegetarian'], ['gluten', 'dairy']], ['Meat Lovers', 19.5, 'Pepperoni, sausage, bacon, ham', [], ['gluten', 'dairy']]] },
@@ -90,10 +91,17 @@ export type Def = {
   city?: string; postal?: string; hours?: 'std' | 'late' | 'conv' | 'allday'; mode?: RestaurantServiceMode; featured?: boolean; minOrder?: number;
   /** default: CONVENIENCE for a "Convenience" cuisine, RESTAURANT otherwise */
   storeType?: StoreType;
+  /** default 'ON' / '416' (the places of the Mississauga and Brampton demo) */
+  province?: string; areaCode?: string;
+  /** default: the last two of the base restaurants are new */
+  isNew?: boolean;
 };
 
+/** seedDefs options for a set of places that is not the first demo: `indexBase` keeps phones, tablet codes and ratings apart from the other sets, `ownerOnly` creates the owner account only. */
+type DefsOptions = { indexBase?: number; ownerOnly?: boolean };
+
 /** merchant 1 owns two locations (City Centre + Port Credit); every other merchant has one. */
-const DEFS: Def[] = [
+export const DEFS: Def[] = [
   { name: 'Napoli Wood Fired Pizza - City Centre', merchant: 1, cuisines: ['Pizza', 'Italian'], menu: 'pizza', zone: 'City Centre', dLat: 0.002, dLng: 0.001, street: '100 City Centre Dr', price: 2, tier: 'Standard', prep: 20 },
   { name: 'Napoli Wood Fired Pizza - Port Credit', merchant: 1, cuisines: ['Pizza', 'Italian'], menu: 'pizza', zone: 'Port Credit', dLat: 0.001, dLng: 0.002, street: '45 Lakeshore Rd E', price: 2, tier: 'Standard', prep: 20 },
   { name: 'Burger Barn', merchant: 2, cuisines: ['Burgers'], menu: 'burgers', zone: 'City Centre', dLat: -0.004, dLng: 0.003, street: '3 Robert Speck Pkwy', price: 2, tier: 'Premium', prep: 15 },
@@ -126,7 +134,7 @@ export async function seedRestaurantsExtra(ds: DataSource, opts: SeedOptions): P
 /** the demo accounts of `npm run seed` end in this; the production start-up check refuses a database that has any (docs/deployment.md) */
 const DEMO_ACCOUNT_DOMAIN = 'demo-restaurant.ca';
 
-async function seedDefs(ds: DataSource, opts: SeedOptions, defs: Def[], menus: Record<string, Menu>, extraOnly: boolean, domain: string = DEMO_ACCOUNT_DOMAIN): Promise<void> {
+async function seedDefs(ds: DataSource, opts: SeedOptions, defs: Def[], menus: Record<string, Menu>, extraOnly: boolean, domain: string = DEMO_ACCOUNT_DOMAIN, more: DefsOptions = {}): Promise<void> {
   const merchants = ds.getRepository(Merchant);
   const restaurants = ds.getRepository(Restaurant);
   const users = ds.getRepository(User);
@@ -151,6 +159,8 @@ async function seedDefs(ds: DataSource, opts: SeedOptions, defs: Def[], menus: R
   let created = 0;
   for (const [i, d] of defs.entries()) {
     if (extraOnly && i < DEFS.length) continue; // base restaurants were handled by seedRestaurants
+    const n = (more.indexBase ?? 0) + i;
+    const area = d.areaCode ?? '416';
     const brand = d.merchant === 1 ? 'Napoli Wood Fired Pizza Inc.' : `${d.name} Ltd.`;
     let merchant = merchantRows.get(d.merchant) ?? (await merchants.findOne({ where: { businessName: brand } }));
     if (!merchant) {
@@ -160,7 +170,7 @@ async function seedDefs(ds: DataSource, opts: SeedOptions, defs: Def[], menus: R
           legalName: brand,
           hstNumber: `8${String(10000000 + d.merchant * 1111).slice(0, 8)}RT0001`,
           contactEmail: `owner${d.merchant}@${domain}`,
-          contactPhone: `+1416555${String(1000 + d.merchant).padStart(4, '0')}`,
+          contactPhone: `+1${area}555${String(1000 + d.merchant).padStart(4, '0')}`,
           bank: { institution: '004', transit: '12345', accountLast4: '6789', holder: brand, verified: true },
           agreementSignedAt: new Date(Date.now() - 90 * 86400_000),
           agreementSignedBy: `Owner ${d.merchant}`,
@@ -196,12 +206,12 @@ async function seedDefs(ds: DataSource, opts: SeedOptions, defs: Def[], menus: R
           storeType,
           kdsEnabled: profileOf(storeType).kdsDefault,
           description: profileOf(storeType).retail ? `${d.name} - ${profileOf(storeType).label.toLowerCase()} in ${d.city ?? 'Mississauga'}. Picked fresh for you and delivered.` : `${d.name} - fresh, made to order in ${d.city ?? 'Mississauga'}.`,
-          phone: `+1416555${String(3000 + i).padStart(4, '0')}`,
+          phone: `+1${area}555${String(3000 + n).padStart(4, '0')}`,
           email: `orders+${slug}@${domain}`,
           addressLine1: d.street,
           city: d.city ?? 'Mississauga',
-          province: 'ON',
-          postalCode: d.postal ?? POSTAL[i % POSTAL.length],
+          province: d.province ?? 'ON',
+          postalCode: d.postal ?? POSTAL[n % POSTAL.length],
           lat: zone ? +(zone.centerLat + d.dLat).toFixed(6) : 43.589 + d.dLat,
           lng: zone ? +(zone.centerLng + d.dLng).toFixed(6) : -79.6441 + d.dLng,
           zoneId: zone?.id ?? null,
@@ -217,11 +227,11 @@ async function seedDefs(ds: DataSource, opts: SeedOptions, defs: Def[], menus: R
           deliveryRadiusKm: 6,
           minimumOrder: d.minOrder ?? 10,
           tabletActivated: true,
-          tabletCode: String(100000 + i * 7919).slice(0, 6),
-          rating: +(4.1 + ((i * 7) % 9) / 10).toFixed(2),
+          tabletCode: String(100000 + n * 7919).slice(0, 6),
+          rating: +(4.1 + ((n * 7) % 9) / 10).toFixed(2),
           ratingCount: 0,
-          isFeatured: d.featured ?? i < 3,
-          isNew: extraOnly ? i >= DEFS.length + 4 : i >= DEFS.length - 2,
+          isFeatured: d.featured ?? n < 3,
+          isNew: d.isNew ?? (extraOnly ? i >= DEFS.length + 4 : i >= DEFS.length - 2),
           menuEditStatus: MenuEditStatus.ALLOWED,
           ...(d.mode ? { serviceMode: d.mode } : {}),
         }),
@@ -235,6 +245,7 @@ async function seedDefs(ds: DataSource, opts: SeedOptions, defs: Def[], menus: R
       await seedMenu(ds, r.id, menu);
     }
 
+    if (more.ownerOnly) continue;
     // first location of each merchant gets the staff roles; merchant 1's second location gets its own manager
     const firstOfMerchant = defs.findIndex((x) => x.merchant === d.merchant) === i;
     const suffix = firstOfMerchant ? '' : 'b';
@@ -339,12 +350,16 @@ const STORE_ACTIVITY_TABLES: [string, string][] = [['orders', 'order'], ['ledger
  * Refused (nothing changes) when an order, ledger entry, review or support ticket exists for one of them: suspend those stores in the Admin Console instead.
  */
 export async function removeDemoStores(ds: DataSource): Promise<{ removed: string[]; refused?: string }> {
-  const stores = await ds.getRepository(Restaurant).find({ where: { slug: In(DEMO_STORE_SLUGS) } });
+  return removePlaces(ds, DEMO_STORE_SLUGS, DEMO_STORE_EMAILS, 'demo stores');
+}
+
+async function removePlaces(ds: DataSource, slugs: string[], emails: string[], what: string): Promise<{ removed: string[]; refused?: string }> {
+  const stores = await ds.getRepository(Restaurant).find({ where: { slug: In(slugs) } });
   if (!stores.length) return { removed: [] };
   const ids = stores.map((s) => s.id);
-  for (const [table, what] of STORE_ACTIVITY_TABLES) {
+  for (const [table, activity] of STORE_ACTIVITY_TABLES) {
     const [{ n }] = await ds.query(`SELECT COUNT(*)::int AS n FROM "${table}" WHERE "restaurantId" = ANY($1)`, [ids]);
-    if (n > 0) return { removed: [], refused: `${n} ${what}(s) exist for the demo stores. Suspend the stores in the Admin Console instead of removing them.` };
+    if (n > 0) return { removed: [], refused: `${n} ${activity}(s) exist for the ${what}. Suspend the places in the Admin Console instead of removing them.` };
   }
   const merchantIds = [...new Set(stores.map((s) => s.merchantId))];
   await ds.transaction(async (m) => {
@@ -356,7 +371,25 @@ export async function removeDemoStores(ds: DataSource): Promise<{ removed: strin
     await m.query(`DELETE FROM restaurants WHERE id = ANY($1)`, [ids]);
     await m.query(`DELETE FROM restaurant_members WHERE "merchantId" = ANY($1)`, [merchantIds]);
     await m.query(`DELETE FROM merchants WHERE id = ANY($1) AND NOT EXISTS (SELECT 1 FROM restaurants r WHERE r."merchantId" = merchants.id)`, [merchantIds]);
-    await m.query(`DELETE FROM users WHERE email = ANY($1) AND type = 'RESTAURANT'`, [DEMO_STORE_EMAILS]);
+    await m.query(`DELETE FROM users WHERE email = ANY($1) AND type = 'RESTAURANT'`, [emails]);
   });
   return { removed: stores.map((s) => s.name) };
+}
+
+// ------------------------------------------------------------------ demo places for every delivery zone
+/** Two restaurants and one store in each zone of Mississauga, Brampton, Edmonton and Winnipeg (45 places, merchants 30-74, owner accounts only). */
+export const DEMO_LOCATION_SLUGS: string[] = LOCATION_DEFS.map((d) => slugify(d.name));
+const DEMO_LOCATION_EMAILS: string[] = LOCATION_DEFS.map((d) => `owner${d.merchant}@${DEMO_STORE_ACCOUNT_DOMAIN}`);
+
+/**
+ * Restaurants, cafes and stores in every zone (docs/store-types.md, "Demo data"), each with its own merchant and an owner account (`owner30@` ... `owner74@` on the demo store
+ * domain, password `opts.demoPassword`). Idempotent: a place that exists is left as it is. Run `seedPlatform` and `seedDemoZones` first (zones, tiers, cuisines).
+ */
+export async function seedDemoLocations(ds: DataSource, opts: SeedOptions): Promise<void> {
+  await seedDefs(ds, { ...opts, demo: true }, LOCATION_DEFS, { ...MENUS, ...EXTRA_MENUS, ...STORE_MENUS }, false, DEMO_STORE_ACCOUNT_DOMAIN, { indexBase: 100, ownerOnly: true });
+}
+
+/** Takes those places out again, like `removeDemoStores`. The cities and zones stay (they are cheap, and may carry settings: remove them in the Admin Console, "Zones"). */
+export async function removeDemoLocations(ds: DataSource): Promise<{ removed: string[]; refused?: string }> {
+  return removePlaces(ds, DEMO_LOCATION_SLUGS, DEMO_LOCATION_EMAILS, 'demo places');
 }
