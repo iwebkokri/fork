@@ -30,7 +30,7 @@ function Section({ n, title, children, hint }) {
 function AddressDialog({ open, onClose, onSaved }) {
   const loc = useSfLocation();
   const first = DEMO_LOCATIONS.find((l) => loc && l.lat === loc.lat && l.lng === loc.lng) || DEMO_LOCATIONS[0];
-  const [f, setF] = useState({ label: "Home", line1: "", line2: "", city: first.city, postalCode: first.postalCode, lat: String(first.lat), lng: String(first.lng) });
+  const [f, setF] = useState({ label: "Home", line1: "", line2: "", city: first.city, province: first.province || "ON", postalCode: first.postalCode, lat: String(first.lat), lng: String(first.lng) });
   const [demo, setDemo] = useState(first.label);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -43,12 +43,12 @@ function AddressDialog({ open, onClose, onSaved }) {
   const onFound = (a) => {
     setPicked(a);
     setDemo("");
-    setF((cur) => ({ ...cur, line1: a.line1 || cur.line1, city: a.city || cur.city, postalCode: a.postalCode || cur.postalCode, lat: String(a.lat), lng: String(a.lng) }));
+    setF((cur) => ({ ...cur, line1: a.line1 || cur.line1, city: a.city || cur.city, province: a.province || cur.province, postalCode: a.postalCode || cur.postalCode, lat: String(a.lat), lng: String(a.lng) }));
   };
   const pickDemo = (label) => {
     setDemo(label);
     const d = DEMO_LOCATIONS.find((l) => l.label === label);
-    if (d) setF((cur) => ({ ...cur, city: d.city, postalCode: d.postalCode, lat: String(d.lat), lng: String(d.lng) }));
+    if (d) setF((cur) => ({ ...cur, city: d.city, province: d.province || "ON", postalCode: d.postalCode, lat: String(d.lat), lng: String(d.lng) }));
   };
   const save = async (e) => {
     e.preventDefault();
@@ -60,7 +60,7 @@ function AddressDialog({ open, onClose, onSaved }) {
     setBusy(true);
     setError("");
     try {
-      const a = await sfHttp.post("/customer/addresses", { label: f.label.trim() || undefined, line1: f.line1.trim(), line2: f.line2.trim() || undefined, city: f.city.trim(), province: "ON", postalCode: f.postalCode.trim().toUpperCase(), lat, lng });
+      const a = await sfHttp.post("/customer/addresses", { label: f.label.trim() || undefined, line1: f.line1.trim(), line2: f.line2.trim() || undefined, city: f.city.trim(), province: f.province || "ON", postalCode: f.postalCode.trim().toUpperCase(), lat, lng });
       onSaved(a);
       onClose();
     } catch (err) {
