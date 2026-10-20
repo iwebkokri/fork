@@ -19,6 +19,18 @@ export interface MapboxConfig {
 export const MAPBOX_STYLE_RE = /^[A-Za-z0-9_-]{1,40}\/[A-Za-z0-9_-]{1,60}$/;
 export const DEFAULT_MAPBOX_STYLE = 'mapbox/streets-v12';
 
+/**
+ * "username/style_id" from whatever the owner copies out of Mapbox: `mapbox://styles/user/id` (the "Style URL" of Mapbox Studio), `https://api.mapbox.com/styles/v1/user/id?access_token=...`,
+ * the Studio address `https://studio.mapbox.com/styles/user/id/edit/...`, or `user/id` itself (the query string, which may carry a token, is dropped). Anything else comes back
+ * unchanged, so MAPBOX_STYLE_RE still refuses it.
+ */
+export function normalizeMapboxStyle<T>(raw: T): T | string {
+  if (typeof raw !== 'string') return raw;
+  const s = raw.trim();
+  const m = /^(?:mapbox:\/\/styles\/|https:\/\/(?:api|studio)\.mapbox\.com\/styles\/(?:v1\/)?)([A-Za-z0-9_-]{1,40})\/([A-Za-z0-9_-]{1,60})(?:[/?#.].*)?$/i.exec(s);
+  return m ? `${m[1]}/${m[2]}` : s;
+}
+
 export const MAPBOX_TOKEN_RE = /^(sk|pk)\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$/;
 export const MAPBOX_PUBLIC_TOKEN_RE = /^pk\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$/;
 export const BBOX_RE = /^-?\d{1,3}(\.\d+)?,-?\d{1,2}(\.\d+)?,-?\d{1,3}(\.\d+)?,-?\d{1,2}(\.\d+)?$/;
@@ -52,7 +64,7 @@ export class MapboxService {
       token,
       tokenSource: typeof s === 'string' && s.trim() ? 'settings' : env ? 'env' : 'none',
       publicToken: pub,
-      style: ((this.settings.get<string>('integrations.mapbox.style', DEFAULT_MAPBOX_STYLE) || DEFAULT_MAPBOX_STYLE) as string).trim(),
+      style: normalizeMapboxStyle((this.settings.get<string>('integrations.mapbox.style', DEFAULT_MAPBOX_STYLE) || DEFAULT_MAPBOX_STYLE) as string),
       country: String(this.settings.get<string>('integrations.mapbox.country', 'ca') || 'ca').toLowerCase(),
       bbox: String(this.settings.get<string>('integrations.mapbox.bbox', '') ?? '').trim(),
       proximity: String(this.settings.get<string>('integrations.mapbox.proximity', '') ?? '').trim(),
@@ -233,6 +245,22 @@ export class MapboxService {
   }
 
   // ------------------------------------------------------------------ admin "Test connection"
+  /** Can the public (pk.) token draw the configured style? Asks for the first map tile, as the maps of the admin screens do. Never returns the token. */
+  private async tileCheck(): Promise<{ ok: boolean; style: string; reason?: string }> {
+    const c = this.config();
+    const style = MAPBOX_STYLE_RE.test(c.style) ? c.style : DEFAULT_MAPBOX_STYLE;
+    if (!c.publicToken || !MAPBOX_PUBLIC_TOKEN_RE.test(c.publicToken)) return { ok: false, style, reason: 'No public (pk.) token is set: the maps on the admin screens use OpenStreetMap' };
+    try {
+      const res = await fetch(`${this.base()}/styles/v1/${style}/tiles/256/0/0/0?access_token=${c.publicToken}`, { signal: AbortSignal.timeout(8000) });
+      if (res.ok) return { ok: true, style };
+      if (res.status === 404) return { ok: false, style, reason: `Mapbox has no style "${style}": copy the Style URL from Mapbox Studio (Share) and paste it into Map style` };
+      if (res.status === 401 || res.status === 403) return { ok: false, style, reason: `The public token cannot draw the style "${style}": use a token of the Mapbox account that owns the style (it needs the styles:tiles and styles:read scopes) or share the style` };
+      return { ok: false, style, reason: `Mapbox answered HTTP ${res.status} for the style "${style}"` };
+    } catch {
+      return { ok: false, style, reason: 'Mapbox could not be reached to check the map style' };
+    }
+  }
+
   /** One forward geocode request. Never returns the token. */
   async test(): Promise<TestOutcome & { country: string; bbox: string; tokenKind: string }> {
     const cfg = this.config();
@@ -252,7 +280,7 @@ export class MapboxService {
       } catch (e: any) {
         routing = { ok: false, reason: e?.message === 'MAPBOX_AUTH' ? 'The token cannot use the Directions API (road distance and time fall back to the estimate)' : String(e?.message ?? 'Directions request failed') };
       }
-      return { ok: true, sample: String(j.suggestions[0].full_address ?? j.suggestions[0].name ?? ''), latencyMs: Date.now() - t0, routing, ...base };
+      return { ok: true, sample: String(j.suggestions[0].full_address ?? j.suggestions[0].name ?? ''), latencyMs: Date.now() - t0, routing, tiles: await this.tileCheck(), ...base };
     } catch (e: any) {
       const reason = e?.message === 'MAPBOX_AUTH' ? 'Mapbox rejected the access token (invalid, expired, or it lacks the Search scope)' : String(e?.message ?? 'Mapbox request failed');
       return { ok: false, reason, latencyMs: Date.now() - t0, ...base };

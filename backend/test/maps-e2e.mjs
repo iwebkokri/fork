@@ -113,6 +113,10 @@ async function main() {
   check('an unknown provider is refused (400)', r.s === 400, r.text);
   r = await api('PUT', '/admin/integrations/mapbox', S.admin, { style: 'not a style!' });
   check('a Mapbox style of the wrong shape is refused (400)', r.s === 400, r.text);
+  r = await api('PUT', '/admin/integrations/mapbox', S.admin, { style: 'mapbox://styles/myteam/custom-day' });
+  check('the Style URL of Mapbox Studio is accepted and stored as username/style_id', r.s === 200 && r.j.style === 'myteam/custom-day', r.text);
+  r = await api('PUT', '/admin/integrations/mapbox', S.admin, { style: 'https://api.mapbox.com/styles/v1/myteam/custom-day?access_token=' + MB_PK });
+  check('an api.mapbox.com address of the style is accepted too, and its token is not stored', r.s === 200 && r.j.style === 'myteam/custom-day' && !r.text.includes(MB_PK), r.text);
   r = await api('PUT', '/admin/integrations/mapbox', S.admin, { accessToken: MB_SK, publicToken: MB_PK, style: 'mapbox/outdoors-v12' });
   check('Mapbox keys and style saved', r.s === 200 && r.j.configured === true && r.j.style === 'mapbox/outdoors-v12', r.text);
   r = await api('PUT', '/admin/integrations/google', S.admin, { apiKey: G_SERVER, browserKey: G_BROWSER });

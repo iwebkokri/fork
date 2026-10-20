@@ -28,6 +28,8 @@ One page, one card per integration. Everything is also available from the API (`
 * Every change is written to the audit log with the field names only, never a value (`integrations.stripe.update`, `integrations.mapbox.update`, `integrations.google.update`, `integrations.maps.update` with the old and the new provider, and `.test`).
 * Keys can also come from the environment (`STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `MAPBOX_ACCESS_TOKEN`, `MAPBOX_PUBLIC_TOKEN`, `GOOGLE_MAPS_API_KEY`, `GOOGLE_MAPS_BROWSER_KEY`); a **saved value wins** over the environment.
   Sending an empty string removes the saved value (the environment applies again).
+* **Keys and styles can be replaced or removed at any time** (System > Integrations, or `PUT /admin/integrations/mapbox`): the change is used by the running API at once (no restart; another API instance picks it up within a minute) and the maps of the admin screens
+  draw the new style on the next map. In the Admin Console a new key or style is checked against Mapbox right after saving, so a wrong one shows at once.
 * The generic Settings page no longer lists or edits the `integrations` group (the old `payments.stripe.*`, `maps.mapboxToken`, `maps.googleApiKey` and `maps.provider` rows were moved here on first boot; the old `maps.provider` only stays Google when a Google key was really saved, otherwise Mapbox is the provider).
 
 API: `GET /admin/integrations`, `PUT /admin/integrations/stripe`, `PUT /admin/integrations/mapbox`, `PUT /admin/integrations/google`, `PUT /admin/integrations/maps` (`{ provider: mapbox|google, roadDistances: bool }`), `POST /admin/integrations/:name/test` (`stripe` | `mapbox` | `google`), `GET /admin/maps/config` (any signed-in staff: provider + tile URL, public keys only),
@@ -60,7 +62,10 @@ When it is on, the quote asks the provider for the route from the restaurant to 
 
 ### Which keys the providers need
 
-* **Mapbox**: an `sk.` server token with the **Search** and **Directions** scopes (a `pk.` token also works), and a **public `pk.` token** for the maps. In Mapbox, restrict the public token to your website addresses. The browser only ever sees the public token and the style.
+* **Mapbox**: an `sk.` server token with the **Search** and **Directions** scopes (a `pk.` token with the Search scope also works), and a **public `pk.` token** for the maps. In Mapbox, restrict the public token to your website addresses. The browser only ever sees the public token and the style.
+  A secret token starts with `sk.`; a token that starts with `pk.` is public whatever it is called, and one created with few scopes answers 403 to address search and map tiles.
+* **Map style**: `username/style_id` (`mapbox/streets-v12`) or whatever Mapbox Studio gives out: the **Style URL** `mapbox://styles/username/style_id`, the `https://api.mapbox.com/styles/v1/username/style_id` address or the Studio address. All are stored as `username/style_id`
+  (a token in a pasted address is dropped). A style of your own account is drawn with a public token of the same account (a private style needs `styles:tiles` and `styles:read`). **Test connection** also draws one tile of the style and says why it cannot (no such style, token not allowed).
 * **Google** (Google Cloud console): a **server key** with the Places API (New), Geocoding API, Routes API and Map Tiles API enabled (restrict it by IP to the API server), and a separate **browser key** restricted to your website addresses and to the Map Tiles API. The browser only ever sees the browser key.
 * The tile origins `https://api.mapbox.com` and `https://tile.googleapis.com` are allowed in the `img-src` of the Content-Security-Policy (images only; see [security-frontend.md](security-frontend.md)). Address search needs no CSP entry: the browser only calls the FORKSY API.
 
