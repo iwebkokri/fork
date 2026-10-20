@@ -5527,6 +5527,7 @@ components:
           nullable: true
           type: string
         style:
+          description: '`username/style_id`; the Style URL of Mapbox Studio (`mapbox://styles/username/style_id`) and the api.mapbox.com / studio.mapbox.com addresses of the style are accepted too and stored as `username/style_id`'
           maxLength: 100
           type: string
       type: object
