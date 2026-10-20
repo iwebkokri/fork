@@ -10,7 +10,10 @@
 import 'reflect-metadata';
 import { roadEstimate } from '../src/common/geo.util';
 import { GoogleMapsService } from '../src/integrations/google-maps.service';
-import { MapboxService } from '../src/integrations/mapbox.service';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
+import { UpdateMapboxDto } from '../src/integrations/integrations.controllers';
+import { MAPBOX_STYLE_RE, MapboxService, normalizeMapboxStyle } from '../src/integrations/mapbox.service';
 import { MapsService } from '../src/integrations/maps.service';
 
 let failed = 0;
@@ -134,6 +137,45 @@ const directions = (c: Call) => (/\/directions\/v5\//.test(c.url) ? { body: { co
     check('a custom style is used', /\/styles\/v1\/myteam\/custom-day\/tiles\//.test(t.url || ''), t.url);
     const bad = await make({ 'integrations.mapbox.publicToken': MB_PK, 'integrations.mapbox.style': '../../evil?x=1' }).maps.tiles();
     check('a malformed style can never end up in the URL (the default is used)', /\/styles\/v1\/mapbox\/streets-v12\//.test(bad.url || '') && !(bad.url || '').includes('evil'), bad.url);
+  }
+  // ---- the Map style field takes what Mapbox Studio gives out ------------------------------------------------------------------
+  {
+    const ID = 'exampleuser/cmz9x8y7w6v5u4t3s2r1q0p9o';
+    const forms: string[] = [
+      `mapbox://styles/${ID}`,
+      `  mapbox://styles/${ID}\n`,
+      `https://api.mapbox.com/styles/v1/${ID}?access_token=${MB_PK}`,
+      `https://api.mapbox.com/styles/v1/${ID}.html?title=true&access_token=${MB_PK}`,
+      `https://studio.mapbox.com/styles/${ID}/edit/#10/43.59/-79.64`,
+      ID,
+    ];
+    check('the Style URL of Mapbox Studio, the api.mapbox.com and studio.mapbox.com addresses and user/id all become user/id', forms.every((f) => normalizeMapboxStyle(f) === ID), forms.map((f) => normalizeMapboxStyle(f)));
+    check('the token of a pasted address is dropped', !forms.map((f) => normalizeMapboxStyle(f)).join('|').includes('access_token'));
+    const refused: unknown[] = ['mapbox://styles/onlyone', 'http://api.mapbox.com/styles/v1/a/b', 'https://evil.example/styles/v1/a/b', 'mapbox://styles/../../x/y', 'javascript:alert(1)', 'not a style!', '../../evil?x=1', 5, null];
+    check('anything else is left alone and still refused by the style pattern', refused.every((r) => typeof normalizeMapboxStyle(r) !== 'string' || !MAPBOX_STYLE_RE.test(normalizeMapboxStyle(r) as string)), refused.map((r) => normalizeMapboxStyle(r)));
+    const t = await make({ 'integrations.mapbox.publicToken': MB_PK, 'integrations.mapbox.style': `mapbox://styles/${ID}` }).maps.tiles();
+    check('a style stored in the Style URL form still draws the right tiles', t.url === `https://api.mapbox.com/styles/v1/${ID}/tiles/256/{z}/{x}/{y}{r}?access_token=${MB_PK}`, t.url);
+    const ok = plainToInstance(UpdateMapboxDto, { style: `mapbox://styles/${ID}` });
+    check('Integrations API: the Style URL passes validation and is stored as user/id', validateSync(ok).length === 0 && ok.style === ID, [ok.style, validateSync(ok).map((e) => e.constraints)]);
+    check('Integrations API: an empty style still clears it, a bad one is still refused', validateSync(plainToInstance(UpdateMapboxDto, { style: '' })).length === 0 && validateSync(plainToInstance(UpdateMapboxDto, { style: 'not a style!' })).length === 1);
+  }
+  // ---- "Test connection" also draws one tile of the style ----------------------------------------------------------------------
+  {
+    const suggest = (c: Call) => (/\/search\/searchbox\/v1\/suggest/.test(c.url) ? { body: { suggestions: [{ mapbox_id: 'x', name: '1 City Centre Dr', full_address: '1 City Centre Dr, Mississauga, Ontario' }] } } : directions(c));
+    const styleSettings = { 'integrations.mapbox.accessToken': MB_PK, 'integrations.mapbox.publicToken': MB_PK, 'integrations.mapbox.style': 'exampleuser/cmz9x8y7w6v5u4t3s2r1q0p9o' };
+    calls = []; answer = (c) => (/\/tiles\/256\/0\/0\/0/.test(c.url) ? { body: {} } : suggest(c));
+    let r: any = await make(styleSettings).mapbox.test();
+    check('connection test: the style draws a tile -> map style ok', r.ok === true && r.tiles?.ok === true && r.tiles.style === styleSettings['integrations.mapbox.style'] && calls.some((c) => /\/styles\/v1\/exampleuser\/cmz9x8y7w6v5u4t3s2r1q0p9o\/tiles\/256\/0\/0\/0\?access_token=/.test(c.url)), r);
+    answer = (c) => (/\/tiles\//.test(c.url) ? { status: 404, body: { message: 'Not Found' } } : suggest(c));
+    r = await make(styleSettings).mapbox.test();
+    check('connection test: Mapbox has no such style -> address search still ok, the style line says so', r.ok === true && r.tiles?.ok === false && /has no style/.test(r.tiles.reason), r.tiles);
+    answer = (c) => (/\/tiles\//.test(c.url) ? { status: 403, body: { message: 'Forbidden' } } : suggest(c));
+    r = await make(styleSettings).mapbox.test();
+    check('connection test: the public token may not draw it -> the style line says which token to use', r.ok === true && r.tiles?.ok === false && /cannot draw the style/.test(r.tiles.reason), r.tiles);
+    check('connection test: the token never appears in a result', !JSON.stringify(r).includes(MB_PK));
+    calls = []; answer = suggest;
+    r = await make({ 'integrations.mapbox.accessToken': MB_SK }).mapbox.test();
+    check('connection test: no public token -> no tile request, the style line says the maps use OpenStreetMap', r.ok === true && r.tiles?.ok === false && /OpenStreetMap/.test(r.tiles.reason) && !calls.some((c) => /\/tiles\//.test(c.url)), r.tiles);
   }
   {
     check('no public token: OpenStreetMap', (await make({ 'integrations.mapbox.accessToken': MB_SK }).maps.tiles()).provider === 'osm');

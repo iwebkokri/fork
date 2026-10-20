@@ -179,7 +179,9 @@ function MapboxCard({ m, reload, canChange, active }) {
       else if (f[k]) body[k] = f[k];
     }
     for (const k of ["style", "country", "bbox", "proximity"]) if (f[k] !== null) body[k] = f[k];
-    run(() => http.put("/admin/integrations/mapbox", body), { success: "Mapbox settings saved", onDone: () => { setF(MAPBOX_EMPTY); setClear({}); setTest(null); reload(); } });
+    // a new key or style is checked against Mapbox right after saving, so a wrong one shows up at once (removing a key is not "checked")
+    const verify = !!(f.accessToken || f.publicToken || f.style);
+    run(() => http.put("/admin/integrations/mapbox", body), { success: "Mapbox settings saved", onDone: () => { setF(MAPBOX_EMPTY); setClear({}); setTest(null); reload(); if (verify) runTest(); } });
   };
   const runTest = async () => {
     setTesting(true);
@@ -197,19 +199,20 @@ function MapboxCard({ m, reload, canChange, active }) {
     >
       {active && <div className="alert alert-success radius-8 py-8 text-sm" data-testid="mapbox-active">Mapbox is the maps provider in use.</div>}
       {m.warnings?.map((w, i) => <div key={i} className="alert alert-warning radius-8 py-8 text-sm">{w}</div>)}
-      <SecretField name="accessToken" label="Access token (server)" view={m.keys.accessToken} value={f.accessToken} onChange={(v) => setF((x) => ({ ...x, accessToken: v }))} cleared={clear.accessToken} onClear={() => setClear((c) => ({ ...c, accessToken: true }))} disabled={!canChange} placeholder="sk.... (Search + Directions scopes) or pk...." hint="Used by the FORKY API only (address search and road distances). Browsers never receive it." />
-      <SecretField name="publicToken" label="Public token (for the maps)" view={m.keys.publicToken} value={f.publicToken} onChange={(v) => setF((x) => ({ ...x, publicToken: v }))} cleared={clear.publicToken} onClear={() => setClear((c) => ({ ...c, publicToken: true }))} disabled={!canChange} placeholder="pk...." hint="Loads the map tiles in the admin screens. In Mapbox, restrict it to your website addresses. Without it the maps use OpenStreetMap." />
+      <SecretField name="accessToken" label="Access token (server)" view={m.keys.accessToken} value={f.accessToken} onChange={(v) => setF((x) => ({ ...x, accessToken: v }))} cleared={clear.accessToken} onClear={() => setClear((c) => ({ ...c, accessToken: true }))} disabled={!canChange} placeholder="sk.... (Search + Directions scopes) or pk...." hint="Used by the FORKY API only (address search and road distances). Browsers never receive it. To replace it, type the new token and Save: it is used at once, no restart." />
+      <SecretField name="publicToken" label="Public token (for the maps)" view={m.keys.publicToken} value={f.publicToken} onChange={(v) => setF((x) => ({ ...x, publicToken: v }))} cleared={clear.publicToken} onClear={() => setClear((c) => ({ ...c, publicToken: true }))} disabled={!canChange} placeholder="pk...." hint="Loads the map tiles in the admin screens. In Mapbox, restrict it to your website addresses. Without it the maps use OpenStreetMap. To replace it, type the new token and Save." />
       <div className="row">
-        <div className="col-12"><TextInput label="Map style" value={val("style")} onChange={(v) => setF((x) => ({ ...x, style: v }))} disabled={!canChange} hint="username/style_id, e.g. mapbox/streets-v12" /></div>
+        <div className="col-12"><TextInput label="Map style" data-testid="mapbox-style" value={val("style")} onChange={(v) => setF((x) => ({ ...x, style: v }))} disabled={!canChange} hint="username/style_id (mapbox/streets-v12) or the Style URL of Mapbox Studio (mapbox://styles/username/style_id)" /></div>
         <div className="col-md-4"><TextInput label="Search country" value={val("country")} onChange={(v) => setF((x) => ({ ...x, country: v }))} disabled={!canChange} hint="e.g. ca (both providers use this search area)" /></div>
         <div className="col-md-8"><TextInput label="Bounding box" value={val("bbox")} onChange={(v) => setF((x) => ({ ...x, bbox: v }))} disabled={!canChange} hint="minLng,minLat,maxLng,maxLat (Greater Toronto Area)" /></div>
         <div className="col-12"><TextInput label="Default proximity (Mississauga)" value={val("proximity")} onChange={(v) => setF((x) => ({ ...x, proximity: v }))} disabled={!canChange} hint="lng,lat: results nearer to this point rank first" /></div>
       </div>
       {r && (
-        <div className={`alert ${r.ok ? "alert-success" : "alert-danger"} radius-8 mb-0`} role="status" data-testid="mapbox-test-result">
+        <div className={`alert ${r.ok ? (r.tiles && !r.tiles.ok ? "alert-warning" : "alert-success") : "alert-danger"} radius-8 mb-0`} role="status" data-testid="mapbox-test-result">
           <div className="fw-semibold">{r.ok ? "Address search works" : "Address search failed"} <span className="text-xs fw-normal">({fmtDateTime(r.checkedAt)})</span></div>
           {r.ok ? <div className="text-sm">Found: {r.sample} <span className="text-secondary-light">({r.latencyMs} ms, {r.tokenKind} token)</span></div> : <div className="text-sm" data-testid="test-reason">{r.reason}</div>}
           {r.ok && r.routing && <div className="text-sm" data-testid="mapbox-test-routing">{r.routing.ok ? `Road distances work (${r.routing.km} km, ${r.routing.minutes} min for the test trip)` : `Road distances: ${r.routing.reason}`}</div>}
+          {r.ok && r.tiles && <div className="text-sm" data-testid="mapbox-test-tiles">{r.tiles.ok ? `Map style works (${r.tiles.style})` : `Map style: ${r.tiles.reason}`}</div>}
         </div>
       )}
     </Card>

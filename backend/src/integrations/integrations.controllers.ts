@@ -7,7 +7,7 @@ import { Action, Module as Mod } from '../common/enums';
 import { SettingsService } from '../settings/settings.service';
 import { IntegrationsService } from './integrations.service';
 import { GOOGLE_KEY_RE } from './google-maps.service';
-import { BBOX_RE, COUNTRY_RE, MAPBOX_PUBLIC_TOKEN_RE, MAPBOX_STYLE_RE, MAPBOX_TOKEN_RE, PROXIMITY_RE } from './mapbox.service';
+import { BBOX_RE, COUNTRY_RE, MAPBOX_PUBLIC_TOKEN_RE, MAPBOX_STYLE_RE, MAPBOX_TOKEN_RE, PROXIMITY_RE, normalizeMapboxStyle } from './mapbox.service';
 import { MapsService } from './maps.service';
 import { StripeClientService, STRIPE_PUBLISHABLE_RE, STRIPE_SECRET_RE, STRIPE_WEBHOOK_RE } from './stripe-client.service';
 
@@ -26,7 +26,8 @@ export class UpdateStripeDto {
 export class UpdateMapboxDto {
   @IsOptional() @IsString() @MaxLength(300) @Matches(orEmpty(MAPBOX_TOKEN_RE), { message: 'accessToken must look like sk.... or pk....' }) accessToken?: string | null;
   @IsOptional() @IsString() @MaxLength(300) @Matches(orEmpty(MAPBOX_PUBLIC_TOKEN_RE), { message: 'publicToken must look like pk....' }) publicToken?: string | null;
-  @IsOptional() @IsString() @MaxLength(100) @Matches(orEmpty(MAPBOX_STYLE_RE), { message: 'style must look like username/style_id, e.g. mapbox/streets-v12' }) style?: string;
+  /** `username/style_id`; the Style URL of Mapbox Studio (`mapbox://styles/username/style_id`) and the api.mapbox.com / studio.mapbox.com addresses of the style are accepted too and stored as `username/style_id` */
+  @IsOptional() @Transform(({ value }) => normalizeMapboxStyle(value)) @IsString() @MaxLength(100) @Matches(orEmpty(MAPBOX_STYLE_RE), { message: 'style must look like username/style_id (e.g. mapbox/streets-v12) or the Style URL of Mapbox Studio (mapbox://styles/username/style_id)' }) style?: string;
   @IsOptional() @IsString() @MaxLength(60) @Matches(COUNTRY_RE, { message: 'country: ISO 3166 alpha-2 codes, comma separated, e.g. ca' }) country?: string;
   @IsOptional() @IsString() @MaxLength(80) @Matches(orEmpty(BBOX_RE), { message: 'bbox must be "minLng,minLat,maxLng,maxLat"' }) bbox?: string;
   @IsOptional() @IsString() @MaxLength(40) @Matches(orEmpty(PROXIMITY_RE), { message: 'proximity must be "lng,lat"' }) proximity?: string;
