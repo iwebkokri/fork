@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { City, CommissionTier, Cuisine, DriverProfile, Incident, MenuItem, OpsChecklist, Restaurant, TaxClass, Zone } from '../database/entities';
+import { CommissionController, CommissionService } from './commission';
 import { TaxClassesService, CommissionTiersService, CuisinesService, TaxClassesController, CommissionTiersController, CuisinesController, PublicCuisinesController } from './catalog';
 import { GeographyService, CitiesController, ZonesController, PublicGeoController } from './geography';
 import { IncidentsService, IncidentsController, PublicStatusController } from './incidents';
@@ -20,7 +21,7 @@ import { PlatformPricingService, PricingController } from './pricing';
  */
 @Module({
   imports: [TypeOrmModule.forFeature([City, Zone, TaxClass, CommissionTier, Cuisine, Restaurant, DriverProfile, MenuItem, Incident, OpsChecklist])],
-  providers: [TaxClassesService, CommissionTiersService, CuisinesService, GeographyService, IncidentsService, ChecklistsService, SupplyService, PlatformPricingService],
+  providers: [TaxClassesService, CommissionTiersService, CuisinesService, GeographyService, IncidentsService, ChecklistsService, SupplyService, PlatformPricingService, CommissionService],
   controllers: [
     TaxClassesController,
     CommissionTiersController,
@@ -34,7 +35,8 @@ import { PlatformPricingService, PricingController } from './pricing';
     ChecklistsController,
     SupplyController,
     PricingController,
+    CommissionController,
   ],
-  exports: [TaxClassesService, CommissionTiersService, CuisinesService, GeographyService, IncidentsService, ChecklistsService, SupplyService, PlatformPricingService],
+  exports: [TaxClassesService, CommissionTiersService, CuisinesService, GeographyService, IncidentsService, ChecklistsService, SupplyService, PlatformPricingService, CommissionService],
 })
 export class PlatformModule {}

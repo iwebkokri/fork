@@ -187,7 +187,7 @@ export interface IOrdersService {
   getById(id: string, relations?: string[]): Promise<Order>;
   /** Single entry point for every status change (validates transition, owner, time limits, writes OrderEvent, emits realtime, notifies, triggers payment capture/settlement). */
   transition(orderId: string, to: OrderStatus, actor: ActorRef, opts?: TransitionOpts): Promise<Order>;
-  cancel(orderId: string, actor: ActorRef, reason: string, opts?: { restaurantApproval?: { contactName: string; channel: string; note?: string } }): Promise<Order>;
+  cancel(orderId: string, actor: ActorRef, reason: string, opts?: { restaurantApproval?: { contactName: string; channel: string; note?: string }; refundTo?: 'ORIGINAL_PAYMENT' | 'WALLET' }): Promise<Order>;
   /** Customer cancel grace window (orders.customerCancelGraceSeconds): open while inside it and before pickup; `until` is when it closes. */
   customerCancelWindow(order: Pick<Order, 'status' | 'createdAt' | 'fulfilment' | 'kitchenReleaseAt' | 'kitchenReleasedAt'>): { open: boolean; until: Date | null };
   /** has the order been handed to the kitchen (customer cancellation window over)? */

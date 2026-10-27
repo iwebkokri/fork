@@ -188,9 +188,9 @@ export class CheckoutService {
   }
 
   // ------------------------------------------------------------------ actions (delegate to OrdersService)
-  async cancel(customerId: string, id: string, reason: string) {
+  async cancel(customerId: string, id: string, reason: string, refundTo?: 'ORIGINAL_PAYMENT' | 'WALLET') {
     await this.detail(customerId, id); // ownership + existence
-    return this.ext.orders.cancel(id, { type: ActorType.CUSTOMER, id: customerId }, reason);
+    return this.ext.orders.cancel(id, { type: ActorType.CUSTOMER, id: customerId }, reason, { refundTo });
   }
 
   updateTip(customerId: string, id: string, tip: number) {

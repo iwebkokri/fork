@@ -15,7 +15,6 @@ const COLUMNS = [
   { key: "new", title: "New", statuses: ["PLACED"], tone: "danger", icon: "solar:bell-bing-outline" },
   { key: "kitchen", title: "In kitchen", statuses: ["ACCEPTED", "DRIVER_ASSIGNED", "PREPARING"], tone: "warning", icon: "solar:chef-hat-outline" },
   { key: "ready", title: "Ready", statuses: ["READY"], tone: "success", icon: "solar:check-circle-outline" },
-  { key: "out", title: "Out / collected", statuses: ["PICKED_UP", "ON_THE_WAY"], tone: "primary", icon: "solar:delivery-outline" },
 ];
 
 const REJECT_REASONS = [
@@ -107,13 +106,15 @@ function HandoffModal({ order, onClose, onDone }) {
   const { busy, run } = useAction();
   const [code, setCode] = useState("");
   if (!order) return null;
+  const pickup = order.type === "PICKUP";
   const submit = async () => {
-    const r = await run("handoff", () => api.post(`/restaurant/orders/${order.id}/handoff`, { code: code.trim() }), `Order ${order.code} handed off`);
+    const r = await run("handoff", () => api.post(`/restaurant/orders/${order.id}/handoff`, { code: code.trim() }), pickup ? `Order ${order.code} collected` : `Order ${order.code} picked up`);
     if (r.ok) onDone();
   };
   return (
-    <FormModal open onClose={onClose} title={`Hand off ${order.code}`} onSubmit={submit} busy={!!busy} submitText="Confirm handoff" disabled={!code.trim()}>
-      <TextInput label={order.type === "PICKUP" ? "Customer pickup code" : "Driver pickup code"} value={code} onChange={setCode} autoFocus placeholder="Enter the code" />
+    <FormModal open onClose={onClose} title={`Hand off ${order.code}`} onSubmit={submit} busy={!!busy} submitText={pickup ? "Confirm collection" : "Mark picked up"} disabled={pickup && !code.trim()}>
+      {pickup && <TextInput label="Customer pickup code" value={code} onChange={setCode} autoFocus placeholder="Enter the code" />}
+      {!pickup && <p className="text-secondary-light text-sm mb-0">Your own courier takes this order. Confirm to mark it picked up.</p>}
     </FormModal>
   );
 }
@@ -275,10 +276,17 @@ function OrderCard({ order, reload, highlight }) {
               +5 min
             </Button>
           )}
-          {s === "READY" && (
+          {s === "READY" && (order.type === "PICKUP" || order.fulfilment === "OWN_DRIVER") && (
             <Button variant="primary" icon="solar:hand-shake-outline" onClick={() => setHandoff(true)}>
-              Hand off (code)
+              {order.type === "PICKUP" ? "Hand off (pickup code)" : "Hand off"}
             </Button>
+          )}
+          {["DRIVER_ASSIGNED", "PREPARING", "READY"].includes(s) && order.type !== "PICKUP" && order.fulfilment === "PLATFORM_DRIVER" && order.driver && (
+            <div className="alert alert-info radius-8 py-8 px-12 mb-0 text-sm w-100" data-testid="driver-handover">
+              <div className="fw-semibold">Handing over to the driver</div>
+              <div>Ask the driver for the order number. If it is <b>{order.code}</b>, hand the order over; the driver then marks it picked up in his app.</div>
+              <div className="text-secondary-light">Driver: {order.driver.name}{[order.driver.vehicleColor, order.driver.licensePlate].filter(Boolean).length ? ` · ${[order.driver.vehicleColor, order.driver.licensePlate].filter(Boolean).join(" · ")}` : ""}</div>
+            </div>
           )}
         </div>
       </div>
@@ -351,6 +359,48 @@ function LiveBoard({ focusId, focusKey, onMissing }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** Orders already in a driver's hands. Not on the live board; kept here so the restaurant can see who has an order in an emergency. */
+function OutForDelivery() {
+  const state = usePortalFetch("/restaurant/orders/out-for-delivery");
+  useRealtimeReload(state.reload, ["order.status"]);
+  useTick(30000);
+  if (state.error && !state.data) return <ErrorState error={state.error} onRetry={state.reload} />;
+  if (!state.data) return <Loading />;
+  const rows = state.data;
+  if (rows.length === 0) return <div className="text-center text-secondary-light text-sm py-32 border radius-12" style={{ borderStyle: "dashed" }}>No orders are out for delivery</div>;
+  return (
+    <div className="row g-3">
+      {rows.map((o) => (
+        <div key={o.id} className="col-xl-4 col-md-6">
+          <div className="card radius-12 shadow-sm h-100" style={{ borderLeft: "4px solid #2563eb" }}>
+            <div className="card-body p-16">
+              <div className="d-flex justify-content-between align-items-start mb-8">
+                <div className="fw-bold text-lg">{o.code}</div>
+                <StatusBadge status={o.status} />
+              </div>
+              <div className="text-secondary-light text-xs mb-8">Picked up {fmtTime(o.pickedUpAt)}{o.estimatedDeliveryAt ? ` · due ${fmtTime(o.estimatedDeliveryAt)}` : ""} · {money(o.total)}</div>
+              {o.driver ? (
+                <div className="text-sm">
+                  <div className="fw-semibold">{o.driver.name}</div>
+                  <div className="text-secondary-light">{[o.driver.vehicleColor, titleCase(o.driver.vehicleType || ""), o.driver.licensePlate].filter(Boolean).join(" · ")}</div>
+                  {o.driver.phone && <div><a href={`tel:${o.driver.phone}`}>{o.driver.phone}</a></div>}
+                  {o.driver.lat != null && o.driver.lng != null && (
+                    <a href={`https://www.google.com/maps?q=${o.driver.lat},${o.driver.lng}`} target="_blank" rel="noreferrer">
+                      Last seen {o.driver.lastLocationAt ? fmtTime(o.driver.lastLocationAt) : "-"} · open on map
+                    </a>
+                  )}
+                </div>
+              ) : (
+                <div className="text-secondary-light text-sm">Driver details unavailable</div>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -450,6 +500,7 @@ export default function Orders() {
         <Segmented
           options={[
             { value: "live", label: "Live board" },
+            { value: "out", label: "Out for delivery" },
             { value: "history", label: "History" },
           ]}
           value={tab}
@@ -457,7 +508,7 @@ export default function Orders() {
         />
       }
     >
-      {tab === "live" ? <LiveBoard focusId={orderParam} focusKey={location.key} onMissing={setDetail} /> : <History />}
+      {tab === "live" ? <LiveBoard focusId={orderParam} focusKey={location.key} onMissing={setDetail} /> : tab === "out" ? <OutForDelivery /> : <History />}
       <OrderDetailModal id={detail} onClose={() => setDetail(null)} />
     </PortalPage>
   );

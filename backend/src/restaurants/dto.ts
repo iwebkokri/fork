@@ -19,6 +19,7 @@ import {
 } from 'class-validator';
 import { PageQueryDto } from '../common/pagination';
 import { MIN_AGES, SELL_BY, STORE_TYPES, TEMPERATURES, WEIGHT_UNITS } from '../common/store-types';
+import { SPICE_LEVELS } from '../common/menu-details';
 
 // ------------------------------------------------------------------ menu
 export class CategoryDto {
@@ -59,6 +60,22 @@ export class CatalogFieldsDto {
   /** 0 = none, else 18 / 19 / 21: the customer confirms their age at checkout and ID is checked at hand-over */
   @IsOptional() @IsIn(MIN_AGES) minAge?: number;
   @IsOptional() @IsIn(TEMPERATURES) temperature?: 'AMBIENT' | 'CHILLED' | 'FROZEN';
+
+  // ---- menu details (any store type) ----
+  /** NONE | MILD | MEDIUM | HOT | EXTRA_HOT; null = not stated */
+  @IsOptional() @IsIn([...SPICE_LEVELS, null]) spiceLevel?: 'NONE' | 'MILD' | 'MEDIUM' | 'HOT' | 'EXTRA_HOT' | null;
+  /** size in centimetres */
+  @IsOptional() @IsNumber() @Min(0) @Max(10_000) lengthCm?: number | null;
+  @IsOptional() @IsNumber() @Min(0) @Max(10_000) widthCm?: number | null;
+  @IsOptional() @IsNumber() @Min(0) @Max(10_000) heightCm?: number | null;
+  @IsOptional() @IsString() @MaxLength(2000) ingredients?: string | null;
+  /** allergens that may be present through cross-contact */
+  @IsOptional() @IsArray() @ArrayMaxSize(30) @IsString({ each: true }) mayContain?: string[];
+  /** per serving: fatG, satFatG, carbsG, sugarG, fibreG, proteinG, sodiumMg */
+  @IsOptional() @IsObject() nutrition?: Record<string, number> | null;
+  @IsOptional() @IsString() @MaxLength(60) servingSize?: string | null;
+  @IsOptional() @IsString() @MaxLength(60) countryOfOrigin?: string | null;
+  @IsOptional() @IsString() @MaxLength(200) storage?: string | null;
 }
 
 export class ItemDto extends CatalogFieldsDto {
@@ -197,6 +214,8 @@ export class StockUpdateRowDto {
 export class CsvImportDto {
   @IsString() @MaxLength(1_500_000) csv: string;
   @IsOptional() @IsIn(['merge', 'replace']) mode?: 'merge' | 'replace';
+  /** check the file and report what it would do, change nothing */
+  @IsOptional() @IsBoolean() dryRun?: boolean;
 }
 export class PrepTargetsDto {
   @IsArray() targets: { itemId: string; prepTimeMin: number | null }[];
@@ -338,6 +357,7 @@ export class RejectOrderDto {
   @IsOptional() @IsString() note?: string;
 }
 export class HandoffDto {
+  /** customer collecting in store: the customer's pickup code */
   @IsString() code: string;
 }
 export class RemoveItemDto {

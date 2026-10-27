@@ -9,7 +9,7 @@ import { fmtDateTime, titleCase } from "../../lib/format";
 const SELECT_OPTIONS = {
   "general.defaultLanguage": ["en", "fr"],
   "general.distanceUnit": ["km", "mi"],
-  "notifications.emailProvider": ["sendgrid", "ses", "smtp"],
+  "notifications.emailProvider": ["smtp", "sendgrid", "ses"],
   "notifications.pushProvider": ["fcm", "apns"],
   "notifications.smsProvider": ["twilio"],
   "orders.freeCancelUntil": ["PLACED", "ACCEPTED", "PREPARING"],

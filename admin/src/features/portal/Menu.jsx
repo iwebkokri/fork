@@ -69,7 +69,43 @@ const catalogDefaults = (item) => ({
   minAge: item?.minAge || 0,
   temperature: item?.temperature || "AMBIENT",
   taxClassCode: item?.taxClassCode || "HST_ON",
+  ...detailDefaults(item),
 });
+
+const SPICE_OPTIONS = [
+  { value: "NONE", label: "Not spicy" },
+  { value: "MILD", label: "Mild" },
+  { value: "MEDIUM", label: "Medium" },
+  { value: "HOT", label: "Hot" },
+  { value: "EXTRA_HOT", label: "Extra hot" },
+];
+const ALLERGEN_SUGGESTIONS = ["peanuts", "tree nuts", "milk", "eggs", "fish", "crustaceans", "molluscs", "wheat", "gluten", "soy", "sesame", "mustard", "sulphites", "celery"];
+const DIET_SUGGESTIONS = ["vegetarian", "vegan", "halal", "kosher", "gluten-free", "dairy-free", "nut-free", "organic", "keto", "low-sodium"];
+const NUTRITION = [
+  ["fatG", "Fat (g)"],
+  ["satFatG", "Saturated fat (g)"],
+  ["carbsG", "Carbs (g)"],
+  ["sugarG", "Sugar (g)"],
+  ["fibreG", "Fibre (g)"],
+  ["proteinG", "Protein (g)"],
+  ["sodiumMg", "Sodium (mg)"],
+];
+const num = (v) => (v === null || v === undefined ? "" : Number(v));
+/** menu details: spice level, size, ingredients, may-contain allergens, nutrition, origin, storage */
+const detailDefaults = (item) => ({
+  spiceLevel: item?.spiceLevel || "",
+  lengthCm: num(item?.lengthCm),
+  widthCm: num(item?.widthCm),
+  heightCm: num(item?.heightCm),
+  ingredients: item?.ingredients || "",
+  mayContain: item?.mayContain || [],
+  servingSize: item?.servingSize || "",
+  calories: num(item?.calories),
+  countryOfOrigin: item?.countryOfOrigin || "",
+  storage: item?.storage || "",
+  nutrition: Object.fromEntries(NUTRITION.map(([k]) => [k, num(item?.nutrition?.[k])])),
+});
+const hasDetails = (item) => !!(item && (item.spiceLevel || item.lengthCm != null || item.widthCm != null || item.heightCm != null || item.ingredients || item.mayContain?.length || item.nutrition || item.servingSize || item.calories || item.countryOfOrigin || item.storage));
 
 /** Add / edit a dish or a product. The catalog part (SKU, barcode, weight, stock, age limit, temperature) is always there for grocery-type stores and one click away for the others. */
 function ItemModal({ item, menu, open, onClose, onSaved, defaultCategoryId }) {
@@ -79,8 +115,10 @@ function ItemModal({ item, menu, open, onClose, onSaved, defaultCategoryId }) {
   const retail = !!location?.retail;
   const [f, setF] = useState(null);
   const [showCatalog, setShowCatalog] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   React.useEffect(() => {
     if (!open) return;
+    setShowDetails(hasDetails(item));
     setShowCatalog(retail || !!(item && (item.sku || item.barcode || item.trackStock || item.minAge > 0 || item.sellBy === "WEIGHT")));
     setF({
       ...(item
@@ -121,6 +159,17 @@ function ItemModal({ item, menu, open, onClose, onSaved, defaultCategoryId }) {
       pickupPrice: f.pickupPrice === "" ? null : Number(f.pickupPrice),
       allergens: f.allergens,
       dietaryTags: f.dietaryTags,
+      spiceLevel: f.spiceLevel || null,
+      lengthCm: numOrNull(f.lengthCm),
+      widthCm: numOrNull(f.widthCm),
+      heightCm: numOrNull(f.heightCm),
+      ingredients: f.ingredients.trim() || null,
+      mayContain: f.mayContain,
+      servingSize: f.servingSize.trim() || null,
+      calories: numOrNull(f.calories),
+      countryOfOrigin: f.countryOfOrigin.trim() || null,
+      storage: f.storage.trim() || null,
+      nutrition: Object.fromEntries(NUTRITION.map(([k]) => [k, numOrNull(f.nutrition[k])]).filter(([, v]) => v !== null)),
       isPopular: f.isPopular,
       active: f.active,
       groupIds: f.groupIds,
@@ -165,9 +214,33 @@ function ItemModal({ item, menu, open, onClose, onSaved, defaultCategoryId }) {
           <Switch label="Active" checked={f.active} onChange={set("active")} className="mb-0" />
           <Switch label="Popular" checked={f.isPopular} onChange={set("isPopular")} className="mb-0" />
         </div>
-        <TagsInput col={6} label="Allergens" value={f.allergens} onChange={set("allergens")} className="mt-16" suggestions={["gluten", "dairy", "nuts", "peanuts", "soy", "eggs", "fish", "shellfish", "sesame"]} />
-        <TagsInput col={6} label="Dietary tags" value={f.dietaryTags} onChange={set("dietaryTags")} className="mt-16" suggestions={["vegetarian", "vegan", "halal", "gluten-free", "spicy"]} />
+        <TagsInput col={6} label="Allergens" value={f.allergens} onChange={set("allergens")} className="mt-16" suggestions={ALLERGEN_SUGGESTIONS} hint="What the item contains" />
+        <TagsInput col={6} label="Dietary tags" value={f.dietaryTags} onChange={set("dietaryTags")} className="mt-16" suggestions={DIET_SUGGESTIONS} />
       </div>
+      {!showDetails ? (
+        <button type="button" className="btn btn-link px-0 d-block" onClick={() => setShowDetails(true)} data-testid="show-details">
+          Spice level, size, ingredients, nutrition…
+        </button>
+      ) : (
+        <div className="border-top pt-16 mt-8" data-testid="detail-fields">
+          <div className="fw-semibold mb-12">Item details</div>
+          <div className="row">
+            <Select col={4} label="Spice level" value={f.spiceLevel} onChange={set("spiceLevel")} options={SPICE_OPTIONS} placeholder="Not stated" />
+            <TagsInput col={8} label="May contain (cross-contact)" value={f.mayContain} onChange={set("mayContain")} suggestions={ALLERGEN_SUGGESTIONS} hint="Allergens that may be present without being an ingredient" />
+            <NumberInput col={4} label="Length (cm)" value={f.lengthCm} onChange={set("lengthCm")} min={0} step={0.5} />
+            <NumberInput col={4} label="Width (cm)" value={f.widthCm} onChange={set("widthCm")} min={0} step={0.5} />
+            <NumberInput col={4} label="Height (cm)" value={f.heightCm} onChange={set("heightCm")} min={0} step={0.5} />
+            <TextArea label="Ingredients" value={f.ingredients} onChange={set("ingredients")} rows={2} />
+            <TextInput col={6} label="Serving size" hint='What the calories and nutrition refer to, for example "1 slice (120 g)"' value={f.servingSize} onChange={set("servingSize")} />
+            <NumberInput col={6} label="Calories per serving" value={f.calories} onChange={set("calories")} min={0} />
+            {NUTRITION.map(([k, label]) => (
+              <NumberInput key={k} col={3} label={label} value={f.nutrition[k]} onChange={(v) => setF((x) => ({ ...x, nutrition: { ...x.nutrition, [k]: v } }))} min={0} step={0.1} />
+            ))}
+            <TextInput col={6} label="Country of origin" value={f.countryOfOrigin} onChange={set("countryOfOrigin")} />
+            <TextInput col={6} label="Storage" hint='For example "Keep refrigerated, eat within 3 days"' value={f.storage} onChange={set("storage")} />
+          </div>
+        </div>
+      )}
       {menu.modifierGroups.length > 0 && <MultiCheck label="Modifier groups" cols={2} options={menu.modifierGroups.map((g) => ({ value: g.id, label: g.name }))} value={f.groupIds} onChange={set("groupIds")} />}
       {!showCatalog ? (
         <button type="button" className="btn btn-link px-0" onClick={() => setShowCatalog(true)} data-testid="show-catalog">
@@ -685,19 +758,6 @@ export default function Menu() {
   const state = usePortalFetch("/restaurant/menu", retail ? { includeInactive: "true", items: "false" } : { includeInactive: "true" });
   const [tab, setTab] = useState("items");
   useRealtimeReload(state.reload, ["menu.access_changed"]);
-  const api = useApi();
-  const { run, isBusy } = useAction();
-  const exportCsv = async () => {
-    const r = await run("csv", () => api.get("/restaurant/menu/csv"));
-    if (r.ok && r.data?.csv) {
-      const url = URL.createObjectURL(new Blob([r.data.csv], { type: "text/csv" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = retail ? "catalog.csv" : "menu.csv";
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-  };
   const tabs = useMemo(
     () => (menu) => [
       { key: "items", label: retail ? "Products" : "Items", badge: menu.counts?.items, content: retail ? <RetailItemsTab menu={menu} reload={state.reload} /> : <ItemsTab menu={menu} reload={state.reload} /> },
@@ -710,13 +770,6 @@ export default function Menu() {
     <PortalPage
       title={retail ? "Catalog" : "Menu"}
       subtitle={isManager ? undefined : retail ? "Count stock and pause products" : "Mark items out of stock (86) or back in stock"}
-      actions={
-        isManager && (
-          <Button variant="outline" icon="solar:download-minimalistic-outline" loading={isBusy("csv")} onClick={exportCsv}>
-            Export CSV
-          </Button>
-        )
-      }
     >
       <Async state={state}>
         {(menu) => (

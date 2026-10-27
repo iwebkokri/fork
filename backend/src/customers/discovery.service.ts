@@ -24,6 +24,7 @@ import {
 import { OrderStatus, RestaurantServiceMode, RestaurantStatus, StoreType } from '../common/enums';
 import { fulfilmentAvailability } from '../common/service-mode';
 import { STORE_PROFILES, STORE_TYPES, estimatedWeight, parseStoreTypeFilter, profileOf, stepOf, unitPriceOf, weightLabel } from '../common/store-types';
+import { itemDetailsView } from '../common/menu-details';
 import { haversineKm, haversineSql, roadEstimate } from '../common/geo.util';
 import { AvailabilityService, daypartOf, GeoService, zonedParts } from '../core/core.module';
 import { SettingsService } from '../settings/settings.service';
@@ -101,6 +102,8 @@ const promoLabel = (p: Promotion) => {
 
 const DEFAULT_CENTER = { lat: 43.589, lng: -79.6441 };
 const MAX_DISCOVERY_KM = 30;
+/** Discovery looks this far when customers are not limited to zones (the safety cap, never less than the default 30 km). */
+const discoveryKm = (settings: SettingsService) => (settings.get<boolean>('orders.limitCustomersToZones', false) ? MAX_DISCOVERY_KM : Math.max(MAX_DISCOVERY_KM, Number(settings.get<number>('orders.maxDeliveryDistanceKm', 100)) || MAX_DISCOVERY_KM));
 
 @Injectable()
 export class DiscoveryService {
@@ -169,7 +172,7 @@ export class DiscoveryService {
       .leftJoinAndSelect('r.cuisines', 'c')
       .where('r.status = :live', { live: RestaurantStatus.LIVE })
       .andWhere('r.lat IS NOT NULL AND r.lng IS NOT NULL')
-      .andWhere(`${haversineSql('r.lat', 'r.lng')} <= :maxKm`, { lat: loc.lat, lng: loc.lng, maxKm: MAX_DISCOVERY_KM });
+      .andWhere(`${haversineSql('r.lat', 'r.lng')} <= :maxKm`, { lat: loc.lat, lng: loc.lng, maxKm: discoveryKm(this.settings) });
     if (types) qb.andWhere('r.storeType IN (:...types)', { types: types.length ? types : ['__none__'] });
     const rows = await qb.getMany();
     const d = (r: Restaurant) => haversineKm(loc.lat, loc.lng, r.lat!, r.lng!);
@@ -192,7 +195,11 @@ export class DiscoveryService {
         const km = r.lat != null && r.lng != null ? haversineKm(loc.lat, loc.lng, r.lat, r.lng) : null;
         const radius = Math.min(r.deliveryRadiusKm ?? 5, loc.eff.maxRadiusKm || 12);
         const av = fulfilmentAvailability(r);
-        const inDeliveryRange = (r.deliveryEnabled || r.ownDeliveryEnabled) && km !== null && km <= radius;
+        // customers are limited to the store's radius only when the platform enforces it; otherwise any distance up to the safety cap
+        const limitCustomers = this.settings.get<boolean>('orders.limitCustomersToZones', false);
+        const maxKm = Number(this.settings.get<number>('orders.maxDeliveryDistanceKm', 100));
+        const reachKm = limitCustomers ? radius : maxKm > 0 ? maxKm : Infinity;
+        const inDeliveryRange = (r.deliveryEnabled || r.ownDeliveryEnabled) && km !== null && km <= reachKm;
         const deliveryAvailable = av.deliveryAvailable && inDeliveryRange;
         const pickupAvailable = av.pickupAvailable;
         let eta: number | null = null;
@@ -605,6 +612,7 @@ export class DiscoveryService {
           calories: i.calories,
           allergens: i.allergens,
           dietaryTags: i.dietaryTags,
+          ...itemDetailsView(i),
           isPopular: i.isPopular,
           isCombo: i.isCombo,
           dayparts: i.dayparts,
@@ -613,6 +621,7 @@ export class DiscoveryService {
           available: sellable,
           unavailableReason: sellable ? null : !i.available || soldOut ? 'OUT_OF_STOCK' : dayBlocked ? 'NOT_SERVED_NOW' : 'UNAVAILABLE',
           allergenConflict: i.allergens.filter((a) => allergenSet.has(String(a).toLowerCase())),
+          mayContainConflict: (i.mayContain ?? []).filter((a) => allergenSet.has(String(a).toLowerCase())),
           modifierGroups: links
             .filter((l) => l.menuItemId === i.id && groupMap.has(l.groupId))
             .map((l) => {

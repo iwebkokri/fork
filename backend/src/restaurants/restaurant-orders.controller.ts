@@ -1,4 +1,4 @@
-import { Body, Get, NotFoundException, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Get, NotFoundException, Param, Post, Query } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -13,7 +13,7 @@ import { RetailService } from '../orders/retail.service';
 import { resolveRestaurantId, restaurantActor, restaurantOrderView } from './restaurants.util';
 import { AcceptOrderDto, ExtendPrepDto, HandoffDto, OrdersQuery, PickItemDto, RejectOrderDto, RemoveItemDto } from './dto';
 
-const OPEN_STATUSES = [OrderStatus.PLACED, OrderStatus.ACCEPTED, OrderStatus.DRIVER_ASSIGNED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.PICKED_UP, OrderStatus.ON_THE_WAY];
+const OPEN_STATUSES = [OrderStatus.PLACED, OrderStatus.ACCEPTED, OrderStatus.DRIVER_ASSIGNED, OrderStatus.PREPARING, OrderStatus.READY];
 
 class CancelResponseDto {
   /** strict: the string "false" must not become true */
@@ -21,7 +21,7 @@ class CancelResponseDto {
   @IsOptional() @IsString() @MaxLength(300) note?: string;
 }
 
-/** Restaurant portal live orders: accept (prep +5/+10/+15), reject, ready, handoff by code, partial fulfilment (spec §4.5). */
+/** Restaurant portal live orders: accept (prep +5/+10/+15), reject, ready, handoff (own courier / in-store pickup only; a FORKSY driver marks the pickup himself), partial fulfilment (spec §4.5). */
 @RestaurantController('orders')
 export class RestaurantOrdersController {
   constructor(
@@ -57,11 +57,17 @@ export class RestaurantOrdersController {
     return { ...page, data: page.data.map(restaurantOrderView) };
   }
 
+  /** Orders a driver has already picked up: not part of the live board, kept here so the restaurant can see who has the order in an emergency. */
+  @Get('out-for-delivery')
+  outForDelivery(@CurrentUser() user: AuthUser, @Query('restaurantId') restaurantId?: string) {
+    return this.ordersService.outForDelivery(this.rid(user, restaurantId));
+  }
+
   @Get(':id')
   async detail(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('restaurantId') restaurantId?: string) {
     const order = await this.orderFor(this.rid(user, restaurantId), id);
     const timeline = await this.events.find({ where: { orderId: id }, order: { createdAt: 'ASC' } });
-    return { order: restaurantOrderView(order), timeline };
+    return { order: { ...restaurantOrderView(order), driver: await this.ordersService.driverCardFor(order.driverId) }, timeline };
   }
 
   @Post(':id/accept')
@@ -96,8 +102,12 @@ export class RestaurantOrdersController {
   @Post(':id/handoff')
   async handoff(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: HandoffDto, @Query('restaurantId') restaurantId?: string) {
     const order = await this.orderFor(this.rid(user, restaurantId), id);
-    const to = order.fulfilment === FulfilmentMode.PICKUP ? OrderStatus.COLLECTED : OrderStatus.PICKED_UP;
-    return restaurantOrderView(await this.ordersService.transition(id, to, restaurantActor(user), { code: dto.code }));
+    // customer collecting in store: the restaurant checks the customer's pickup code and closes the order
+    if (order.fulfilment === FulfilmentMode.PICKUP) return restaurantOrderView(await this.ordersService.transition(id, OrderStatus.COLLECTED, restaurantActor(user), { code: dto.code }));
+    // restaurant's own courier: no driver app, the restaurant marks it picked up
+    if (order.fulfilment === FulfilmentMode.OWN_DRIVER) return restaurantOrderView(await this.ordersService.transition(id, OrderStatus.PICKED_UP, restaurantActor(user), { code: dto.code }));
+    // FORKSY driver: nothing to enter. The store checks the order number the driver tells and hands the order over; the driver marks it picked up in his app.
+    throw new BadRequestException('A FORKSY driver marks the order picked up in the driver app. Check the order number he tells you and hand the order over.');
   }
 
   @Post(':id/items/:itemId/remove')

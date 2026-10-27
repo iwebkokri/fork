@@ -173,6 +173,7 @@ function ReviewBox({ orderId }) {
 
 /** Cancel button with a live countdown of the grace window (the server enforces it). */
 function CancelBox({ until, onCancel, cancelling }) {
+  const [asking, setAsking] = useState(false);
   const left = () => (until ? Math.max(0, Math.round((new Date(until).getTime() - Date.now()) / 1000)) : null);
   const [secs, setSecs] = useState(left);
   useEffect(() => {
@@ -183,9 +184,18 @@ function CancelBox({ until, onCancel, cancelling }) {
   }, [until]);
   return (
     <>
-      <button type="button" className="sf-btn sf-btn-danger-outline sf-btn-block" onClick={onCancel} disabled={cancelling || secs === 0} data-testid="cancel-order">
-        {cancelling ? <Spinner size={16} /> : null} Cancel order{secs != null ? ` (${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")} left)` : ""}
-      </button>
+      {!asking ? (
+        <button type="button" className="sf-btn sf-btn-danger-outline sf-btn-block" onClick={() => setAsking(true)} disabled={cancelling || secs === 0} data-testid="cancel-order">
+          {cancelling ? <Spinner size={16} /> : null} Cancel order{secs != null ? ` (${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")} left)` : ""}
+        </button>
+      ) : (
+        <div data-testid="cancel-choice">
+          <p className="sf-small mb-2"><b>Where should your refund go?</b></p>
+          <button type="button" className="sf-btn sf-btn-danger-outline sf-btn-block mb-2" onClick={() => onCancel("ORIGINAL_PAYMENT")} disabled={cancelling || secs === 0} data-testid="cancel-refund-card">Cancel and refund to my card</button>
+          <button type="button" className="sf-btn sf-btn-danger-outline sf-btn-block mb-2" onClick={() => onCancel("WALLET")} disabled={cancelling || secs === 0} data-testid="cancel-refund-wallet">Cancel and refund to my Forky wallet</button>
+          <button type="button" className="sf-btn sf-btn-light sf-btn-block" onClick={() => setAsking(false)}>Keep order</button>
+        </div>
+      )}
       <p className="sf-small sf-muted mt-2">Your order is held by FORKSY for a moment and is sent to the restaurant when the countdown ends. Until then you can cancel for free. After that it can no longer be cancelled here - please contact support.</p>
     </>
   );
@@ -398,11 +408,12 @@ export default function Track() {
   // the API decides: a short grace period after placing, whatever the kitchen automation has done meanwhile
   const canCancel = t.canCancel === true;
   const dropoff = t.dropoff || {};
-  const cancelOrder = async () => {
-    if (!(await confirm({ title: "Cancel this order?", message: "You are still inside the cancellation window. Your payment is refunded to your card in full.", confirmText: "Cancel order", cancelText: "Keep order", danger: true }))) return;
+  const cancelOrder = async (refundTo) => {
+    const toWallet = refundTo === "WALLET";
+    if (!(await confirm({ title: "Cancel this order?", message: `You are still inside the cancellation window. Your payment is refunded in full ${toWallet ? "to your Forky wallet, ready to use on your next order" : "to the card you paid with"}.`, confirmText: "Cancel order", cancelText: "Keep order", danger: true }))) return;
     setCancelling(true);
     try {
-      await sfHttp.post(`/customer/orders/${id}/cancel`, { reason: "Cancelled by customer on the website" });
+      await sfHttp.post(`/customer/orders/${id}/cancel`, { reason: "Cancelled by customer on the website", refundTo });
       toast("Order cancelled", "success");
       await load();
     } catch (e) {

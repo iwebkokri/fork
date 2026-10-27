@@ -317,8 +317,8 @@ export class StepDto {
 }
 
 export class PickupDto extends StepDto {
-  /** order code the restaurant shows / reads out (must not be empty) */
-  @IsString() @IsNotEmpty() @MaxLength(20) code: string;
+  /** not needed: the driver just confirms the pickup after the store has checked his order number */
+  @IsOptional() @IsString() @MaxLength(20) code?: string;
 }
 
 export class DeliverDto extends StepDto {

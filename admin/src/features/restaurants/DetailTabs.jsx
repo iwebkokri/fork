@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Icon } from "@iconify/react/offline";
-import { http } from "../../lib/api";
+import { errorMessage, http } from "../../lib/api";
+import { toast } from "react-toastify";
 import { useFetch, useForm, usePagedList, useSubmit } from "../../lib/hooks";
 import { useAuth } from "../../lib/auth";
 import { fmtDate, fmtDateTime, money, pct, timeAgo, titleCase } from "../../lib/format";
@@ -207,15 +208,109 @@ export function HoursTab({ r, reload }) {
   );
 }
 
-// ------------------------------------------------------------------ menu (read-only)
+// ------------------------------------------------------------------ menu (read-only) + CSV import / export (admin team only)
+function saveCsv(csv, filename) {
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Import a menu / catalog from a CSV file. "Check file" validates and changes nothing; "Replace" wipes the existing menu first. */
+function MenuImportModal({ r, open, onClose, onDone }) {
+  const [file, setFile] = useState(null);
+  const [mode, setMode] = useState("merge");
+  const [busy, setBusy] = useState(false);
+  const [problems, setProblems] = useState(null);
+  const [result, setResult] = useState(null);
+  const confirm = useConfirm();
+  useEffect(() => {
+    if (open) {
+      setFile(null);
+      setMode("merge");
+      setProblems(null);
+      setResult(null);
+    }
+  }, [open]);
+  if (!open) return null;
+  const send = async (dryRun) => {
+    setBusy(true);
+    setProblems(null);
+    setResult(null);
+    try {
+      const csv = await file.text();
+      const res = await http.post(api(r, "/menu/import"), { csv, mode, dryRun });
+      setResult({ ...res, dryRun });
+      if (!dryRun) onDone();
+    } catch (e) {
+      const d = e?.response?.data;
+      setProblems(Array.isArray(d?.details) && d.details.length ? d.details.map((x) => (typeof x === "string" ? x : `row ${x.row}: ${x.error}`)) : [errorMessage(e)]);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const importNow = async () => {
+    if (mode === "replace") {
+      const x = await confirm({ title: "Replace the whole menu?", message: `Every category, item and modifier group of ${r.name} is deleted first, then the file is imported. Export the current menu before you do this.`, confirmText: "Replace menu", danger: true });
+      if (!x.confirmed) return;
+    }
+    send(false);
+  };
+  return (
+    <FormModal open onClose={onClose} title={`Import menu - ${r.name}`} onSubmit={result && !result.dryRun ? onClose : importNow} busy={busy} submitText={result && !result.dryRun ? "Close" : mode === "replace" ? "Replace menu" : "Import"} disabled={!(result && !result.dryRun) && !file} size="lg">
+      {result && !result.dryRun ? (
+        <div className="alert alert-success radius-8" data-testid="import-result">Imported: <strong>{result.created}</strong> new, <strong>{result.updated}</strong> updated.</div>
+      ) : (
+        <>
+          <p className="text-secondary-light text-sm">
+            Use the template or an export of this store to get the columns (category, name, price, sizes and options in <code>modifier_groups</code>, <code>spice_level</code>, <code>length_cm</code>, <code>width_cm</code>, <code>height_cm</code>, <code>allergens</code>, <code>may_contain</code>, <code>nutrition</code>, stock, age limit...).
+            Items are matched by <strong>SKU</strong>, otherwise category + name. In <em>merge</em> only the columns that are in the file and filled in change anything. A file with a mistake is refused as a whole.
+          </p>
+          <input type="file" accept=".csv,text/csv" className="form-control radius-8 mb-16" onChange={(e) => { setFile(e.target.files?.[0] || null); setResult(null); setProblems(null); }} data-testid="import-file" />
+          <Select label="Mode" allowEmpty={false} value={mode} onChange={setMode} options={[{ value: "merge", label: "Merge: add new items and update matching ones" }, { value: "replace", label: "Replace: delete the whole menu first" }]} />
+          <Button variant="outline" disabled={!file || busy} onClick={() => send(true)}>Check file</Button>
+          {result?.dryRun && <div className="alert alert-info radius-8 mt-16 mb-0" data-testid="import-check">The file is valid: {result.total} row(s) ready to import.</div>}
+          {problems && (
+            <div className="alert alert-danger radius-8 mt-16 mb-0" data-testid="import-errors">
+              <div className="fw-semibold mb-4">Nothing was imported:</div>
+              <ul className="mb-0 ps-3">{problems.slice(0, 15).map((x, i) => <li key={i}>{x}</li>)}</ul>
+            </div>
+          )}
+        </>
+      )}
+    </FormModal>
+  );
+}
+
 export function MenuTab({ r }) {
+  const { can } = useAuth();
   const { data, loading, error, reload } = useFetch(api(r, "/menu"));
+  const [imp, setImp] = useState(false);
+  const download = async (path, name) => {
+    try {
+      const res = await http.get(path);
+      saveCsv(res.csv, name);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+  const slug = (r.slug || r.name || "menu").toString().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const toolbar = (
+    <div className="d-flex flex-wrap gap-2 mb-16" data-testid="menu-csv-tools">
+      <Button variant="outline" icon="solar:download-minimalistic-outline" onClick={() => download(api(r, "/menu/export"), `${slug}-menu.csv`)}>Export CSV</Button>
+      <Button variant="outline" icon="solar:file-text-outline" onClick={() => download("/admin/restaurants/menu/template", "menu-template.csv")}>Download template</Button>
+      {can("restaurants", "edit") && <Button icon="solar:upload-minimalistic-outline" onClick={() => setImp(true)}>Import CSV</Button>}
+      <MenuImportModal r={r} open={imp} onClose={() => setImp(false)} onDone={reload} />
+    </div>
+  );
   if (loading && !data) return <Loading />;
   if (error) return <ErrorState error={error} onRetry={reload} />;
   const cats = data?.categories || [];
   const uncategorized = data?.uncategorized || [];
   const counts = data?.counts;
-  if (!cats.length && !uncategorized.length) return <EmptyState icon="solar:chef-hat-outline" title="No menu yet" text="The restaurant has not added any menu items." />;
+  if (!cats.length && !uncategorized.length) return <>{toolbar}<EmptyState icon="solar:chef-hat-outline" title="No menu yet" text="The restaurant has not added any menu items. Import a CSV file to add one." /></>;
   const table = (items) => (
     <div className="table-responsive">
       <table className="table bordered-table sm-table mb-0 align-middle">
@@ -233,7 +328,7 @@ export function MenuTab({ r }) {
               <td>{money(i.pickupPrice)}</td>
               <td>{i.taxClassCode}</td>
               <td>{i.stationName || "—"}</td>
-              <td>{[...(i.dietaryTags || []), ...(i.allergens || []).map((a) => `⚠ ${a}`)].join(", ") || "—"}</td>
+              <td>{[i.spiceLevel && i.spiceLevel !== "NONE" ? `spice: ${i.spiceLevel.toLowerCase().replace("_", " ")}` : null, ...(i.dietaryTags || []), ...(i.allergens || []).map((a) => `⚠ ${a}`), ...(i.mayContain || []).map((a) => `may contain ${a}`)].filter(Boolean).join(", ") || "—"}</td>
               <td>{!i.active ? <Badge>Inactive</Badge> : i.available ? <Badge tone="success">Available</Badge> : <Badge tone="warning">86'd</Badge>}</td>
             </tr>
           ))}
@@ -243,6 +338,7 @@ export function MenuTab({ r }) {
   );
   return (
     <>
+      {toolbar}
       {counts && (
         <div className="text-secondary-light text-sm mb-16">
           {Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(" · ")}

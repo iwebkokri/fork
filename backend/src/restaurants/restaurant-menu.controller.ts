@@ -7,7 +7,6 @@ import { MenuAccessService } from './menu-access.service';
 import { resolveRestaurantId } from './restaurants.util';
 import {
   CategoryDto,
-  CsvImportDto,
   EightySixDto,
   MenuAccessRequestDto,
   ItemDto,
@@ -26,7 +25,7 @@ import {
 
 const MANAGERS = [RestaurantRole.OWNER, RestaurantRole.LOCATION_MANAGER];
 
-/** Full menu management (spec §4.3): categories, items, modifier groups/options, combos, dayparts, 86/restock, CSV import/export. */
+/** Full menu management (spec §4.3): categories, items, modifier groups/options, combos, dayparts, 86/restock. (CSV import / export is admin-only: /admin/restaurants/:id/menu/export|import.) */
 @RestaurantController('menu')
 export class RestaurantMenuController {
   constructor(private menu: MenuService, private access: MenuAccessService) {}
@@ -225,17 +224,5 @@ export class RestaurantMenuController {
   @RestaurantRoles(...MANAGERS)
   setPrepTargets(@CurrentUser() user: AuthUser, @Body() dto: PrepTargetsDto, @Query('restaurantId') restaurantId?: string) {
     return this.menu.setPrepTargets(this.rid(user, restaurantId), dto.targets);
-  }
-
-  // ---- CSV import / export ----
-  @Get('csv')
-  async exportCsv(@CurrentUser() user: AuthUser, @Query('restaurantId') restaurantId?: string) {
-    return { csv: await this.menu.exportCsv(this.rid(user, restaurantId)) };
-  }
-
-  @Post('csv')
-  @RestaurantRoles(...MANAGERS)
-  async importCsv(@CurrentUser() user: AuthUser, @Body() dto: CsvImportDto, @Query('restaurantId') restaurantId?: string) {
-    return this.menu.importCsv(await this.edit(user, restaurantId), dto.csv, dto.mode);
   }
 }

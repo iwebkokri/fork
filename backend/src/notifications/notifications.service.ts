@@ -1,3 +1,4 @@
+import * as nodemailer from 'nodemailer';
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
@@ -67,7 +68,7 @@ const BASE_MESSAGES: Record<string, Partial<Record<Audience, { title: string; bo
   },
   'order.ready': {
     CUSTOMER: { title: 'Your order is ready', body: 'Order {{code}} is ready. {{pickupHint}}' },
-    DRIVER: { title: 'Order ready for pickup', body: 'Order {{code}} is ready at {{restaurant}}. Pickup code {{pickupCode}}.' },
+    DRIVER: { title: 'Order ready for pickup', body: 'Order {{code}} is ready at {{restaurant}}. Tell the staff your order number {{code}}, then mark it picked up in the app.' },
   },
   'order.picked_up': { CUSTOMER: { title: 'Order picked up', body: '{{driverName}} picked up order {{code}} and is heading your way.' } },
   'order.delivered': {
@@ -621,9 +622,73 @@ export class NotificationsService implements OnModuleInit {
     if (!res.ok) throw new Error(`Twilio ${res.status}`);
   }
 
+  /**
+   * The email provider chosen in Admin > System > Settings (notifications.emailProvider): "smtp" (any mail server), "sendgrid" (SendGrid API key)
+   * or "ses" (Amazon SES, through its SMTP endpoint: host email-smtp.<region>.amazonaws.com with the SMTP credentials made in the SES console;
+   * it uses the same SMTP fields).
+   */
+  private emailProvider(): 'smtp' | 'sendgrid' | 'ses' {
+    const p = String(this.settings.get<string>('notifications.emailProvider') || 'sendgrid').toLowerCase();
+    return p === 'smtp' || p === 'ses' ? p : 'sendgrid';
+  }
+
+  /** Which provider sends email now and whether it is filled in (for the admin screen and the test email). */
+  emailStatus() {
+    const provider = this.emailProvider();
+    const configured =
+      provider === 'smtp' || provider === 'ses'
+        ? !!this.smtpConfig().host
+        : provider === 'sendgrid'
+          ? !!(this.settings.get<string>('notifications.sendgridApiKey') || this.config.get<string>('sendgrid.apiKey'))
+          : false;
+    return { provider, configured, from: this.settings.get<string>('notifications.emailFrom') || this.config.get<string>('sendgrid.from') };
+  }
+
+  private smtpConfig() {
+    const host = String(this.settings.get<string>('notifications.smtp.host') ?? '').trim();
+    const port = Number(this.settings.get<number>('notifications.smtp.port') ?? 587) || 587;
+    const user = String(this.settings.get<string>('notifications.smtp.user') ?? '').trim();
+    const pass = String(this.settings.get<string>('notifications.smtp.password') ?? '');
+    const secure = this.settings.get<boolean>('notifications.smtp.secure') === true || port === 465;
+    return { host, port, user, pass, secure };
+  }
+
+  /**
+   * Sends one plain-text email. Throws when it could not be sent, so the caller (OTP, notifications) records the failure; a provider that is
+   * not configured at all is logged as an error in production (the message is NOT sent) and mocked in development.
+   */
   async sendEmail(to: string, subject: string, body: string) {
-    const key = this.settings.get<string>('notifications.sendgridApiKey') || this.config.get<string>('sendgrid.apiKey');
     const from = this.settings.get<string>('notifications.emailFrom') || this.config.get<string>('sendgrid.from');
+    const provider = this.emailProvider();
+
+    if (provider === 'smtp' || provider === 'ses') {
+      const c = this.smtpConfig();
+      if (!c.host) {
+        if (process.env.NODE_ENV === 'production') this.logger.error(`Email provider is "${provider}" but the SMTP server is not filled in (Admin > System > Settings > notifications) - message to a user was NOT sent`);
+        else this.logger.log(`[email:mock] -> ${to}: ${subject}`);
+        return;
+      }
+      const transport = nodemailer.createTransport({
+        host: c.host,
+        port: c.port,
+        secure: c.secure,
+        requireTLS: !c.secure, // never send the password in clear text: STARTTLS is required on the plain port
+        auth: c.user ? { user: c.user, pass: c.pass } : undefined,
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 15_000,
+      });
+      try {
+        await transport.sendMail({ from, to, subject, text: body });
+      } catch (e: any) {
+        throw new Error(`SMTP ${e?.code ? e.code + ': ' : ''}${e?.responseCode ? e.responseCode + ' ' : ''}${String(e?.message ?? e).slice(0, 200)}`);
+      } finally {
+        transport.close();
+      }
+      return;
+    }
+
+    const key = this.settings.get<string>('notifications.sendgridApiKey') || this.config.get<string>('sendgrid.apiKey');
     if (!key) {
       if (process.env.NODE_ENV === 'production') this.logger.error('Email provider not configured - message to a user was NOT sent');
       else this.logger.log(`[email:mock] -> ${to}: ${subject}`);

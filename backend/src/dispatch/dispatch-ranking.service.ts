@@ -16,6 +16,7 @@ export const HARD_MAX_ORDERS_PER_DRIVER = 2;
 const STACK_HANDOVER_MIN = 2;
 
 const ACTIVE_TRIP_STATUSES = [OrderStatus.DRIVER_ASSIGNED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.PICKED_UP, OrderStatus.ON_THE_WAY];
+const DEFAULT_RADIUS_RINGS_KM = [2, 5, 10, 20, 30];
 /** time the driver needs to read + accept the offer before heading out (min) */
 const ACCEPT_BUFFER_MIN = 0.5;
 
@@ -57,8 +58,31 @@ export class DispatchRankingService {
     return c ?? this.cities.create({ offerTimeoutSec: 30, offersBeforeWiden: 3, maxRadiusWidenings: 2, radiusWidenStepKm: 2, widenBoostAmount: 2, batchMaxOrders: 2, batchMaxDropDistanceKm: 1.5, batchMaxExtraMinutes: 10, driverBaseFare: 3, driverPerKm: 0.6, driverMinPerTrip: 4.5 });
   }
 
+  /** The search rings, nearest first (default 2, 5, 10, 20, 30 km): the search starts in the first and widens to the next when nobody nearer takes the order. */
+  radiusRings(): number[] {
+    const raw = this.settings.get<unknown>('dispatch.radiusRingsKm', DEFAULT_RADIUS_RINGS_KM);
+    const rings = (Array.isArray(raw) ? raw : []).map(Number).filter((n) => Number.isFinite(n) && n > 0 && n <= 200);
+    const clean = [...new Set(rings)].sort((x, y) => x - y);
+    return clean.length ? clean : DEFAULT_RADIUS_RINGS_KM;
+  }
+
   initialRadiusKm(): number {
-    return Number(this.settings.get('dispatch.maxInitialRadiusKm', 4)) || 4;
+    return this.radiusRings()[0];
+  }
+
+  /** The next ring wider than `radiusKm`, or null when the search is already in the widest one. */
+  nextRadiusKm(radiusKm: number): number | null {
+    return this.radiusRings().find((r) => r > radiusKm + 1e-9) ?? null;
+  }
+
+  /**
+   * Extra pay for a driver who is not nearby: `dispatch.extraPerKm` ($) for every km of the pickup distance beyond `dispatch.extraFreeKm`
+   * (default: the first ring). It is part of the offer, shown to the driver, and paid on top of the normal driver fee.
+   */
+  distanceExtra(pickupKm: number): number {
+    const perKm = Math.max(0, Number(this.settings.get('dispatch.extraPerKm', 0.18)) || 0);
+    const free = Math.max(0, Number(this.settings.get('dispatch.extraFreeKm', this.initialRadiusKm())));
+    return Math.round(Math.max(0, pickupKm - free) * perKm * 100) / 100;
   }
 
   /** When the food is (expected to be) ready. */
@@ -211,7 +235,8 @@ export class DispatchRankingService {
         w,
       );
       const all = [...reasons, ...s.reasons];
-      const pay = await this.estimatePay(order, city, est.km, dropRoad, opts.boost ?? 0);
+      const distanceExtra = this.distanceExtra(est.km);
+      const pay = await this.estimatePay(order, city, est.km, dropRoad, (opts.boost ?? 0) + distanceExtra);
       out.push({
         driverId: d.id,
         userId: d.userId,
@@ -224,6 +249,7 @@ export class DispatchRankingService {
         etaMin: est.minutes,
         dropKm: Math.round(dropRoad * 100) / 100,
         estimatedPay: pay.total,
+        distanceExtra,
         score: s.score,
         breakdown: s.breakdown,
         factors: s.factors,

@@ -8,6 +8,7 @@ import { Action, FulfilmentMode, Module as Mod, OrderType } from '../common/enum
 import { paginateQb, like } from '../common/pagination';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
+import { commissionDefaults } from './commission';
 import { OverridesQuery, RestaurantCommissionDto, SimulateDto } from './dto';
 
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -117,9 +118,9 @@ export class PlatformPricingService {
           tierRates: { delivery: t?.deliveryPct ?? null, pickup: t?.pickupPct ?? null, ownDriver: t?.ownDriverPct ?? null },
           overrides: { delivery: r.deliveryCommissionPct, pickup: r.pickupCommissionPct, ownDriver: r.ownDriverCommissionPct },
           effective: {
-            delivery: r.deliveryCommissionPct ?? t?.deliveryPct ?? 20,
-            pickup: r.pickupCommissionPct ?? t?.pickupPct ?? 8,
-            ownDriver: r.ownDriverCommissionPct ?? t?.ownDriverPct ?? 12,
+            delivery: r.deliveryCommissionPct ?? t?.deliveryPct ?? commissionDefaults(this.settings).delivery,
+            pickup: r.pickupCommissionPct ?? t?.pickupPct ?? commissionDefaults(this.settings).pickup,
+            ownDriver: r.ownDriverCommissionPct ?? t?.ownDriverPct ?? commissionDefaults(this.settings).ownDriver,
           },
         };
       }),
@@ -227,7 +228,7 @@ export class PlatformPricingService {
     if (dto.commissionTierId) tier = await this.tiers.findOne({ where: { id: dto.commissionTierId } });
     if (!tier) tier = await this.defaultTier();
     const field = isPickup ? 'pickup' : ownDriver ? 'ownDriver' : 'delivery';
-    const tierPct = tier ? (field === 'pickup' ? tier.pickupPct : field === 'ownDriver' ? tier.ownDriverPct : tier.deliveryPct) : field === 'pickup' ? 8 : field === 'ownDriver' ? 12 : 20;
+    const tierPct = tier ? (field === 'pickup' ? tier.pickupPct : field === 'ownDriver' ? tier.ownDriverPct : tier.deliveryPct) : commissionDefaults(this.settings)[field];
     const ovr = restaurant ? (field === 'pickup' ? restaurant.pickupCommissionPct : field === 'ownDriver' ? restaurant.ownDriverCommissionPct : restaurant.deliveryCommissionPct) : null;
     const commissionPct = dto.commissionPct ?? (dto.commissionTierId ? tierPct : ovr ?? tierPct);
     const commissionAmount = r2((subtotal * commissionPct) / 100);

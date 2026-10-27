@@ -158,7 +158,8 @@ async function main() {
       await ping(accepted.token, lat, lng); await sleep(1500);
       o = await view(); const oo = o.order || o; check('arrival at the restaurant detected from GPS (no tap)', !!oo.driverArrivedRestaurantAt, { at: oo.driverArrivedRestaurantAt });
       co = (await api('GET', `/customer/orders/${b.oid}`, S.c1)).j;
-      r = await api('POST', `/driver/trip/${b.oid}/picked-up`, accepted.token, { code: String(co.pickupCode) }); check('pickup with the code', r.s < 300, r);
+      r = await api('POST', `/restaurant/orders/${b.oid}/handoff`, ownerTok, { code: co.code }); check('restaurant cannot mark a FORKSY driver pickup (the driver does)', r.s === 400, r);
+      r = await api('POST', `/driver/trip/${b.oid}/picked-up`, accepted.token, {}); check('driver confirms the pickup without any code', r.s < 300, r);
       const D = { lat: co.deliveryAddress.lat, lng: co.deliveryAddress.lng };
       await ping(accepted.token, D.lat, D.lng); await sleep(1500);
       o = await view(); const o2 = o.order || o; check('arrival at the customer detected from GPS (no tap)', !!o2.driverArrivedCustomerAt, { at: o2.driverArrivedCustomerAt });

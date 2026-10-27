@@ -8,8 +8,10 @@ import { RestaurantStoreService } from './restaurant-store.service';
 import { RestaurantAdminService } from './restaurant-admin.service';
 import { MenuService } from './menu.service';
 import { MenuAccessService } from './menu-access.service';
+import { AuditService } from '../audit/audit.service';
 import {
   AgreementDto,
+  CsvImportDto,
   ApproveDocDto,
   AdminUpdateRestaurantDto,
   BulkDto,
@@ -52,6 +54,7 @@ export class AdminRestaurantsController {
     private admin: RestaurantAdminService,
     private menu: MenuService,
     private menuAccess: MenuAccessService,
+    private audit: AuditService,
     private auth: AuthService,
   ) {}
 
@@ -152,6 +155,32 @@ export class AdminRestaurantsController {
   @Permission(Module.RESTAURANTS, Action.VIEW)
   menuTree(@Param('id') id: string) {
     return this.menu.tree(id, true);
+  }
+
+  // ------------------------------------------------------------------ menu import / export (admin team only; restaurants cannot do this)
+  /** The whole menu of a store as CSV (categories, items, modifier groups, sizes, spice level, allergens, nutrition, stock...). */
+  @Get(':id/menu/export')
+  @Permission(Module.RESTAURANTS, Action.VIEW)
+  async menuExport(@Param('id') id: string, @CurrentUser() user: AuthUser, @Req() req: any) {
+    const csv = await this.menu.exportCsv(id);
+    await this.audit.logReq(req, 'restaurant.menu_exported', 'restaurant', id, undefined, { rows: csv.split('\n').length - 2 });
+    return { csv };
+  }
+
+  /** An empty file with the right columns and two example rows. */
+  @Get('menu/template')
+  @Permission(Module.RESTAURANTS, Action.VIEW)
+  menuTemplate() {
+    return { csv: this.menu.csvTemplate() };
+  }
+
+  /** merge: rows are matched by SKU, else category + name; replace: the existing menu is wiped first. dryRun checks the file and changes nothing. */
+  @Post(':id/menu/import')
+  @Permission(Module.RESTAURANTS, Action.EDIT)
+  async menuImport(@Param('id') id: string, @Body() dto: CsvImportDto, @Req() req: any) {
+    const r = await this.menu.importCsv(id, dto.csv, dto.mode, !!dto.dryRun);
+    if (!dto.dryRun) await this.audit.logReq(req, 'restaurant.menu_imported', 'restaurant', id, undefined, { mode: r.mode, total: r.total, created: (r as any).created, updated: (r as any).updated });
+    return r;
   }
 
   // ------------------------------------------------------------------ onboarding: documents

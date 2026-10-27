@@ -8,6 +8,11 @@ import { Action, Module, NotificationChannel, UserStatus, UserType } from '../co
 import { User, WebPushSubscription } from '../database/entities';
 import { SettingsService } from '../settings/settings.service';
 import { CATEGORIES, EVENTS, defaultMatrix } from './events';
+import { IsEmail } from 'class-validator';
+
+class TestEmailDto {
+  @IsEmail() to: string;
+}
 import { AdminTestDto, DeliveryLogQueryDto, SwitchesDto } from './notifications.dto';
 import { NotificationsService } from './notifications.service';
 import { FcmService } from './fcm.service';
@@ -87,6 +92,31 @@ export class NotificationsAdminController {
     const r = await this.svc.retryDelivery(id);
     await this.audit.logReq(req, 'notifications.retry', 'notification', id, null, r);
     return r;
+  }
+
+  /** Which email provider is active (smtp or sendgrid, switched in Admin > System > Settings > notifications) and whether it is filled in. */
+  @Get('email-status')
+  @Permission(Module.NOTIFICATIONS, Action.VIEW)
+  emailStatus() {
+    return this.svc.emailStatus();
+  }
+
+  /** Sends one real email with the active provider and reports the exact result, so a wrong host / port / password shows up at once. */
+  @Post('test-email')
+  @HttpCode(200)
+  @Permission(Module.NOTIFICATIONS, Action.EDIT)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async testEmail(@Body() dto: TestEmailDto, @Req() req: any) {
+    const status = this.svc.emailStatus();
+    if (!status.configured) return { ok: false, ...status, error: status.provider === 'sendgrid' ? 'The SendGrid API key is not filled in yet' : 'The SMTP server is not filled in yet (Amazon SES also uses the SMTP fields)' };
+    try {
+      await this.svc.sendEmail(dto.to, 'FORKSY test email', 'This is a test email from FORKSY. If you can read it, email (including sign-in codes) is working.');
+      await this.audit.logReq(req, 'notifications.test_email', 'notification', undefined, null, { to: dto.to, provider: status.provider, ok: true });
+      return { ok: true, ...status };
+    } catch (e: any) {
+      await this.audit.logReq(req, 'notifications.test_email', 'notification', undefined, null, { to: dto.to, provider: status.provider, ok: false });
+      return { ok: false, ...status, error: String(e?.message ?? e).slice(0, 300) };
+    }
   }
 
   /** Send a test push (+ in-app row) to one user, to every staff member of a role, or to every user of an app with a browser subscription. */

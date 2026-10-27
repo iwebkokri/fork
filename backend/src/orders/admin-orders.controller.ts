@@ -7,7 +7,7 @@ import { csvRow } from '../common/csv';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AdminController, CurrentUser, Permission } from '../common/decorators';
-import { Action, Module, OrderStatus, RefundChargedTo } from '../common/enums';
+import { Action, Module, OrderStatus, RefundChargedTo, RefundType } from '../common/enums';
 import { AuthUser } from '../common/auth.types';
 import { Order, OrderEvent } from '../database/entities';
 import { PageQueryDto, like, paginateQb } from '../common/pagination';
@@ -22,6 +22,8 @@ class RefundBodyDto {
   @IsEnum(RefundChargedTo) chargedTo: RefundChargedTo;
   @IsString() @MaxLength(60) reasonCode: string;
   @IsOptional() @IsString() @MaxLength(1000) notes?: string;
+  /** ORIGINAL_PAYMENT (default): back to the payment method the customer used. WALLET: credit the customer's Forky wallet. */
+  @IsOptional() @IsIn(['ORIGINAL_PAYMENT', 'WALLET']) refundTo?: 'ORIGINAL_PAYMENT' | 'WALLET';
 }
 class ForceStatusDto {
   @IsEnum(OrderStatus) status: OrderStatus;
@@ -183,8 +185,8 @@ export class AdminOrdersController {
     @Body() dto: RefundBodyDto,
   ) {
     const { amount, chargedTo, reasonCode, notes } = dto;
-    const refund = await this.refunds.issue({ orderId: id, amount, chargedTo, reasonCode, notes, actor: { ...actorFor(user), refundLimit: (user.type as string) === 'SUPER_ADMIN' ? null : user.refundLimit } });
-    await this.audit.log({ actor: user, action: 'order.refund', entity: 'Order', entityId: id, after: { amount, chargedTo, reasonCode } });
+    const refund = await this.refunds.issue({ orderId: id, amount, chargedTo, reasonCode, notes, type: dto.refundTo === 'WALLET' ? RefundType.CREDIT : RefundType.REFUND, actor: { ...actorFor(user), refundLimit: (user.type as string) === 'SUPER_ADMIN' ? null : user.refundLimit } });
+    await this.audit.log({ actor: user, action: 'order.refund', entity: 'Order', entityId: id, after: { amount, chargedTo, reasonCode, refundTo: dto.refundTo ?? 'ORIGINAL_PAYMENT' } });
     return refund;
   }
 

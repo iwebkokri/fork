@@ -44,6 +44,8 @@ export interface RankedCandidate {
   vehicleType: VehicleType;
   lat: number;
   lng: number;
+  /** extra pay for a driver who is far from the restaurant (dispatch.extraPerKm per km beyond dispatch.extraFreeKm); included in estimatedPay */
+  distanceExtra: number;
   /** road distance driver -> restaurant (km) */
   distanceKm: number;
   etaMin: number;

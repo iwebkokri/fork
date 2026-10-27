@@ -26,6 +26,7 @@ import { AvailabilityService, daypartOf, GeoService, zonedParts } from '../core/
 import { SettingsService } from '../settings/settings.service';
 import { WalletService } from './wallet.service';
 import { computeMoney, lazyProvider, round2 } from './pricing.math';
+import { commissionDefaults, methodOf, resolveCommission } from '../platform/commission';
 
 const DEFAULT_TAX_RATE = 13;
 
@@ -64,22 +65,9 @@ export class PricingService implements IPricingService {
     return this.commissionFor(r, fulfilment);
   }
 
+  /** the rate for this store and method: its override -> its tier -> the tier of its kind of store -> the default tier -> the platform default (see platform/commission.ts) */
   async commissionFor(r: Restaurant | null, fulfilment: FulfilmentMode): Promise<number> {
-    const pick = (o: number | null | undefined, t: CommissionTier | null, def: number, key: 'deliveryPct' | 'pickupPct' | 'ownDriverPct') =>
-      o ?? t?.[key] ?? def;
-    let tier: CommissionTier | null = null;
-    if (r?.commissionTierId) tier = await this.tiers.findOne({ where: { id: r.commissionTierId } });
-    // no tier of its own: the tier made for this kind of store (groceries), else the platform default
-    if (!tier && r?.storeType) tier = (await this.tiers.find({ where: { active: true } })).find((t) => (t.defaultForStoreTypes ?? []).includes(r.storeType)) ?? null;
-    if (!tier) tier = await this.tiers.findOne({ where: { isDefault: true, active: true } });
-    switch (fulfilment) {
-      case FulfilmentMode.PICKUP:
-        return pick(r?.pickupCommissionPct, tier, 8, 'pickupPct');
-      case FulfilmentMode.OWN_DRIVER:
-        return pick(r?.ownDriverCommissionPct, tier, 12, 'ownDriverPct');
-      default:
-        return pick(r?.deliveryCommissionPct, tier, 20, 'deliveryPct');
-    }
+    return (await resolveCommission(r, methodOf(fulfilment), this.tiers, commissionDefaults(this.settings))).pct;
   }
 
   // ------------------------------------------------------------------ quote
@@ -131,20 +119,28 @@ export class PricingService implements IPricingService {
       const a = input.deliveryAddress;
       if (!a || typeof a.lat !== 'number' || typeof a.lng !== 'number') throw new BadRequestException('A delivery address is required');
       deliveryZone = await this.geo.resolveZone(a.lat, a.lng);
-      if (!deliveryZone) throw new BadRequestException('Sorry, this address is outside our delivery area');
+      // Zones and radii exist for driver dispatch. Customers are only held to them when the platform asks for it.
+      const limitCustomers = this.settings.get<boolean>('orders.limitCustomersToZones', false);
+      if (!deliveryZone && limitCustomers) throw new BadRequestException('Sorry, this address is outside our delivery area');
       if (restaurant.lat != null && restaurant.lng != null) {
         const straight = haversineKm(restaurant.lat, restaurant.lng, a.lat, a.lng);
         // the road distance and drive time: the maps provider when "real road distances" is on (remembered, so the quote, the payment and the order agree), else the built-in estimate
         const est = await this.maps.route({ lat: restaurant.lat, lng: restaurant.lng }, { lat: a.lat, lng: a.lng });
         distanceKm = Math.round(est.km * 1000) / 1000;
         driveMinutes = est.minutes;
-        // radius: restaurant's own limit, capped by the zone rules (busy mode may shrink it)
-        const zoneForRules = (restaurant.zoneId && (await this.zones.findOne({ where: { id: restaurant.zoneId } }))) || deliveryZone;
-        const cityForRules = await this.cityOf(zoneForRules?.cityId ?? restaurant.cityId);
-        const eff = this.geo.effective(zoneForRules, cityForRules);
-        const cap = zoneForRules?.busyMode && zoneForRules.busyRadiusKm ? zoneForRules.busyRadiusKm : eff.maxRadiusKm;
-        const radius = Math.min(restaurant.deliveryRadiusKm || cap, cap);
-        if (straight > radius) throw new BadRequestException(`This restaurant delivers within ${radius} km of its location`);
+        if (limitCustomers) {
+          // radius: restaurant's own limit, capped by the zone rules (busy mode may shrink it)
+          const zoneForRules = (restaurant.zoneId && (await this.zones.findOne({ where: { id: restaurant.zoneId } }))) || deliveryZone;
+          const cityForRules = await this.cityOf(zoneForRules?.cityId ?? restaurant.cityId);
+          const eff = this.geo.effective(zoneForRules, cityForRules);
+          const cap = zoneForRules?.busyMode && zoneForRules.busyRadiusKm ? zoneForRules.busyRadiusKm : eff.maxRadiusKm;
+          const radius = Math.min(restaurant.deliveryRadiusKm || cap, cap);
+          if (straight > radius) throw new BadRequestException(`This restaurant delivers within ${radius} km of its location`);
+        } else {
+          // no zone/radius limit: the customer pays by distance (base fee + per-km fee below); only an absurd distance is refused
+          const maxKm = Number(this.settings.get<number>('orders.maxDeliveryDistanceKm', 100));
+          if (maxKm > 0 && straight > maxKm) throw new BadRequestException(`This store is too far from that address to deliver (more than ${maxKm} km)`);
+        }
       }
     }
     const restaurantZone =

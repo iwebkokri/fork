@@ -1,8 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Icon } from "@iconify/react/offline";
 import { toast } from "react-toastify";
 import { Badge, Button, Card, DataTable, FilterSelect, FormModal, IconButton, ListToolbar, TextArea, useConfirm } from "../../ui";
-import { errorMessage } from "../../lib/api";
 import { usePagedList } from "../../lib/hooks";
 import { fmtDateTime, money } from "../../lib/format";
 import { useAction, useApi } from "./shared";
@@ -11,7 +10,7 @@ import { PhotoThumb } from "./ItemPhotos";
 
 /**
  * The catalog of a grocery / convenience / specialty store (docs/store-types.md): a paged, searchable product list (a supermarket has thousands of products),
- * stock counted right in the table, a stock count by SKU / barcode, CSV import. Restaurants keep the menu screen; the same product editor serves both.
+ * stock counted right in the table, a stock count by SKU / barcode. Restaurants keep the menu screen; the same product editor serves both.
  */
 
 export const STOCK_BADGE = {
@@ -129,66 +128,6 @@ function CountStockModal({ open, onClose, onDone }) {
   );
 }
 
-/** Import products from a CSV file (merge: products are matched by SKU, else category + name; only the columns in the file change anything). */
-function ImportModal({ open, onClose, onDone }) {
-  const api = useApi();
-  const [file, setFile] = useState(null);
-  const [errors, setErrors] = useState(null);
-  const [done, setDone] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const input = useRef();
-  useEffect(() => {
-    if (open) {
-      setFile(null);
-      setErrors(null);
-      setDone(null);
-    }
-  }, [open]);
-  if (!open) return null;
-  const submit = async () => {
-    setBusy(true);
-    setErrors(null);
-    try {
-      const csv = await file.text();
-      const r = await api.post("/restaurant/menu/csv", { csv, mode: "merge" });
-      setDone(r);
-      onDone();
-    } catch (e) {
-      const d = e?.response?.data;
-      setErrors(Array.isArray(d?.details) && d.details.length ? d.details.map((x) => (typeof x === "string" ? x : `row ${x.row}: ${x.error}`)) : [errorMessage(e)]);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <FormModal open onClose={onClose} title="Import products from CSV" onSubmit={done ? onClose : submit} busy={busy} submitText={done ? "Close" : "Import"} disabled={!done && !file} size="lg">
-      {done ? (
-        <div className="alert alert-success radius-8" data-testid="import-result">
-          Imported: <strong>{done.created}</strong> new, <strong>{done.updated}</strong> updated.
-        </div>
-      ) : (
-        <>
-          <p className="text-secondary-light text-sm">
-            Export your catalog first to get the columns: <code>category, name, price, sku, barcode, brand, pack_size, sell_by, weight_unit, step_size, track_stock, stock_qty, low_stock, max_per_order, min_age, temperature, ...</code>
-            . Products are matched by <strong>SKU</strong> (otherwise category + name). Only the columns that are in the file <em>and filled</em> change anything. A file with a mistake is refused as a whole.
-          </p>
-          <input ref={input} type="file" accept=".csv,text/csv" className="form-control radius-8" onChange={(e) => setFile(e.target.files?.[0] || null)} data-testid="import-file" />
-          {errors && (
-            <div className="alert alert-danger radius-8 mt-16" data-testid="import-errors">
-              <div className="fw-semibold mb-4">Nothing was imported:</div>
-              <ul className="mb-0 ps-3">
-                {errors.slice(0, 12).map((x, i) => (
-                  <li key={i}>{x}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </>
-      )}
-    </FormModal>
-  );
-}
-
 export default function CatalogTab({ menu, reload, onEdit, onAdd, onEightySix, canEdit }) {
   const api = useApi();
   const confirm = useConfirm();
@@ -196,7 +135,6 @@ export default function CatalogTab({ menu, reload, onEdit, onAdd, onEightySix, c
   const { run } = useAction();
   const list = usePagedList("/restaurant/menu/items", { limit: 25, sortBy: "name", sortDir: "ASC", filters: { restaurantId, categoryId: "", stock: "" } });
   const [count, setCount] = useState(false);
-  const [imp, setImp] = useState(false);
   const canCount = ["OWNER", "LOCATION_MANAGER", "CASHIER"].includes(role);
   const tot = list.data?.counts || {};
   const refresh = () => {
@@ -338,14 +276,9 @@ export default function CatalogTab({ menu, reload, onEdit, onAdd, onEightySix, c
                 </Button>
               )}
               {canEdit && (
-                <>
-                  <Button variant="outline" icon="solar:upload-minimalistic-outline" onClick={() => setImp(true)}>
-                    Import CSV
-                  </Button>
-                  <Button icon="solar:add-circle-outline" onClick={onAdd}>
-                    Add product
-                  </Button>
-                </>
+                <Button icon="solar:add-circle-outline" onClick={onAdd}>
+                  Add product
+                </Button>
               )}
             </>
           }
@@ -353,7 +286,6 @@ export default function CatalogTab({ menu, reload, onEdit, onAdd, onEightySix, c
         <DataTable columns={columns} {...list.tableProps} error={list.error} onRetry={list.reload} dense emptyTitle="No products match" emptyText="Change the search or the filters, or add a product." />
       </Card>
       <CountStockModal open={count} onClose={() => setCount(false)} onDone={refresh} />
-      <ImportModal open={imp} onClose={() => setImp(false)} onDone={refresh} />
     </>
   );
 }

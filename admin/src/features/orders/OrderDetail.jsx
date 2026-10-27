@@ -129,14 +129,15 @@ function WaiveWaitModal({ order, onClose, onDone }) {
 }
 
 function RefundModal({ order, onClose, onDone }) {
-  const f = useForm({ amount: order.total, chargedTo: "PLATFORM", reasonCode: "", notes: "" });
+  const f = useForm({ amount: order.total, chargedTo: "PLATFORM", refundTo: "ORIGINAL_PAYMENT", reasonCode: "", notes: "" });
   const { busy, run } = useSubmit();
   const v = f.values;
-  const submit = () => run(() => http.post(`/admin/orders/${order.id}/refund`, { amount: Number(v.amount), chargedTo: v.chargedTo, reasonCode: v.reasonCode, notes: v.notes || undefined }), { success: "Refund issued", onDone: () => { onClose(); onDone(); } });
+  const submit = () => run(() => http.post(`/admin/orders/${order.id}/refund`, { amount: Number(v.amount), chargedTo: v.chargedTo, refundTo: v.refundTo, reasonCode: v.reasonCode, notes: v.notes || undefined }), { success: "Refund issued", onDone: () => { onClose(); onDone(); } });
   return (
     <FormModal open onClose={onClose} title={`Refund ${order.code}`} onSubmit={submit} busy={busy} submitText="Issue refund" disabled={!(Number(v.amount) > 0) || !v.reasonCode}>
       <MoneyInput label="Amount" required hint={`Order total ${money(order.total)}. Amounts over your refund limit are rejected.`} {...f.bind("amount")} />
       <Select label="Charged to" required allowEmpty={false} options={CHARGED} {...f.bind("chargedTo")} />
+      <Select label="Refund to" required allowEmpty={false} hint="The payment method the customer used, or their Forky wallet (they can spend it on any order)." options={[{ value: "ORIGINAL_PAYMENT", label: "Original payment method" }, { value: "WALLET", label: "Forky wallet" }]} {...f.bind("refundTo")} />
       <Select label="Reason" required options={REASONS} {...f.bind("reasonCode")} />
       <TextArea label="Notes" rows={2} {...f.bind("notes")} />
     </FormModal>

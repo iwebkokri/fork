@@ -65,6 +65,19 @@ Seeded: **Standard** 20/8/12 (default), **Premium** 18/6/10, **Starter** 25/10/1
 Bulk-apply writes `Restaurant.commissionTierId` directly (repository access, no `RestaurantsModule` import) and
 audit-logs the full before/after restaurant list.
 
+## Commission by method — `admin/commission` (`Module.PRICING`)
+Stores are charged a different commission for each method the customer chooses: **delivery** (a FORKSY driver delivers, default 20%), **pickup** (the customer collects in store, default 8%) and **own driver** (the store's courier, default 12%).
+Rate used at checkout: the store's own override -> the store's tier -> the tier for its kind of store -> the default tier -> the platform default below. One resolver (`platform/commission.ts`) serves checkout and these screens.
+
+| Endpoint | Permission | Body / query | Returns |
+|---|---|---|---|
+| `GET /admin/commission/defaults` | PRICING.view | - | `{delivery, pickup, ownDriver}` platform default % |
+| `PUT /admin/commission/defaults` | PRICING.edit | `{delivery?, pickup?, ownDriver?}` (0 to 100) | the new defaults (audited) |
+| `GET /admin/commission/restaurants/:id` | PRICING.view | - | `{rates:{delivery,pickup,ownDriver}}` each `{pct, source, tier}`; source is `RESTAURANT_OVERRIDE`, `RESTAURANT_TIER`, `STORE_TYPE_TIER`, `DEFAULT_TIER` or `PLATFORM_DEFAULT` |
+| `GET /admin/commission/summary` | PRICING.view | `from?, to?, restaurantId?, cityId?` | commission earned on completed orders per method, with the average rate |
+
+A store's own rates or tier: `PATCH /admin/pricing/restaurants/:id/commission` (or `PATCH /admin/restaurants/:id/commission`). Tiers: `admin/commission-tiers`. Settings: `commission.default.deliveryPct|pickupPct|ownDriverPct`.
+
 ## Cuisines — `admin/cuisines` (`Module.CONTENT`) + public
 
 | Method & path | Permission | Body / query | Response |

@@ -324,9 +324,6 @@ export class OrdersService implements IOrdersService {
     const isDriver = actor.type === ActorType.DRIVER;
     const staffOverride = actor.type === ActorType.STAFF && !!(actor as any).supportApproved;
     if (to === OrderStatus.ACCEPTED && !this.isReleased(order)) throw new BadRequestException('This order is still inside the customer cancellation window and has not been sent to the restaurant yet');
-    if (to === OrderStatus.PICKED_UP && order.pickupCode && !staffOverride) {
-      if (!codeMatches(opts.code, order.pickupCode)) throw new ForbiddenException('Pickup code does not match');
-    }
     if (to === OrderStatus.COLLECTED && order.pickupCode && isDriver) {
       if (!codeMatches(opts.code, order.pickupCode)) throw new ForbiddenException('Pickup code does not match');
     }
@@ -369,7 +366,7 @@ export class OrdersService implements IOrdersService {
       order.rejectReason = opts.reason ?? null;
       order.cancelledBy = actor.type;
       const oldHold = order.paymentStatus === PaymentStatus.AUTHORIZED; // placed before "charge at checkout": the card was only held
-      await this.payments.refundOnCancel(order);
+      await this.refundCancelled(order);
       order.paymentStatus = oldHold ? PaymentStatus.RELEASED : PaymentStatus.REFUNDED;
       if (order.walletUsed > 0) await this.wallet.credit(order.customerId, order.walletUsed, 'ADJUSTMENT', { orderId: order.id, note: 'Order rejected - wallet portion returned' });
     }
@@ -454,9 +451,14 @@ export class OrdersService implements IOrdersService {
     };
   }
 
-  /** When the clock for the driver's waiting starts: the later of the driver's arrival and the ORIGINAL promised ready time. */
-  waitClockStart(order: Pick<Order, 'driverArrivedRestaurantAt' | 'meta' | 'estimatedReadyAt'>): Date | null {
+  /**
+   * When the clock for the driver's waiting starts: the later of the driver's arrival and the ORIGINAL promised ready time. If the restaurant had already
+   * marked the order Ready when the driver arrived, the order was declared ready: the clock starts at the arrival, whatever the promised time was
+   * (the driver stands there while items are still being prepared).
+   */
+  waitClockStart(order: Pick<Order, 'driverArrivedRestaurantAt' | 'meta' | 'estimatedReadyAt' | 'readyAt'>): Date | null {
     if (!order.driverArrivedRestaurantAt) return null;
+    if (order.readyAt && order.readyAt.getTime() <= order.driverArrivedRestaurantAt.getTime()) return order.driverArrivedRestaurantAt;
     const promised = order.meta?.promisedReadyAt ? new Date(order.meta.promisedReadyAt) : order.estimatedReadyAt;
     if (!promised) return order.driverArrivedRestaurantAt;
     return new Date(Math.max(order.driverArrivedRestaurantAt.getTime(), promised.getTime()));
@@ -541,11 +543,23 @@ export class OrdersService implements IOrdersService {
 
   /** one sentence about the money for a cancelled / rejected order (customer notification) */
   private refundNote(order: Order): string {
-    const toCard = !!order.paymentIntentId;
+    const toCard = !!order.paymentIntentId && order.meta?.refundTo !== 'WALLET'; // the customer can ask for the refund to go to the wallet
     if (order.cancellationFee && Number(order.cancellationFee) > 0) return `A cancellation fee of $${Number(order.cancellationFee).toFixed(2)} applies; the rest of your payment is ${toCard ? 'refunded to your card (it can take 5-10 business days to show on your statement)' : 'returned to your wallet'}.`;
     if (order.paymentStatus === PaymentStatus.RELEASED) return 'You have not been charged: the payment hold was released.'; // an order placed before "charge at checkout"
     if (order.paymentStatus === PaymentStatus.REFUNDED) return toCard ? 'Your payment is refunded in full to your card (it can take 5-10 business days to show on your statement).' : 'Your payment is returned to your wallet.';
     return 'Your payment will be refunded.';
+  }
+
+  /**
+   * Gives the card payment back for a cancelled / rejected order: to the card it was paid with (default) or, when the customer asked for it
+   * (order.meta.refundTo = WALLET), into their Forky wallet. A payment hold that was never captured is simply released (no money moved).
+   */
+  private async refundCancelled(order: Order, keep = 0) {
+    const r = await this.payments.refundOnCancel(order, keep, order.meta?.refundTo === 'WALLET');
+    if (r.walletCredit && r.walletCredit > 0) {
+      await this.wallet.credit(order.customerId, r.walletCredit, 'REFUND', { orderId: order.id, note: 'Order cancelled - refunded to your wallet as you asked' });
+    }
+    return r;
   }
 
   /** Reject / cancel: give the card payment back (or an old hold is released), keeping the cancellation fee when one applies, per section 7 rules. */
@@ -563,7 +577,7 @@ export class OrdersService implements IOrdersService {
     const freeCancel = order.status === OrderStatus.PLACED || isStaffOrRestaurant || restaurantLate || (freeUntil === order.status) || withinGrace;
 
     if (freeCancel) {
-      await this.payments.refundOnCancel(order);
+      await this.refundCancelled(order);
       order.paymentStatus = oldHold ? PaymentStatus.RELEASED : PaymentStatus.REFUNDED;
       if (order.walletUsed > 0) await this.wallet.credit(order.customerId, order.walletUsed, 'ADJUSTMENT', { orderId: order.id, note: 'Order cancelled - wallet portion returned' });
       if (actor.type === ActorType.RESTAURANT && order.status !== OrderStatus.PLACED) {
@@ -583,7 +597,7 @@ export class OrdersService implements IOrdersService {
     // the fee is kept from the card payment first; if wallet credit paid part of the order and the card cannot cover the whole fee, the wallet keeps the difference
     const cardFee = fee > 0 && order.paymentIntentId ? Math.min(fee, await this.payments.cardAtStake(order)) : 0;
     const walletKeeps = round2(fee - cardFee);
-    await this.payments.refundOnCancel(order, cardFee);
+    await this.refundCancelled(order, cardFee);
     if (fee > 0) await this.ledger.add({ partyType: PartyType.PLATFORM, partyId: null, orderId: order.id, type: LedgerType.ADJUSTMENT, amount: fee, description: `Late-cancellation fee on ${order.code}` });
     order.paymentStatus = fee > 0 ? PaymentStatus.PARTIALLY_REFUNDED : oldHold ? PaymentStatus.RELEASED : PaymentStatus.REFUNDED;
     const walletBack = round2(Number(order.walletUsed) - Math.min(Number(order.walletUsed), walletKeeps));
@@ -689,7 +703,7 @@ export class OrdersService implements IOrdersService {
     return this.getById(order.id);
   }
 
-  async cancel(orderId: string, actor: ActorRef, reason: string, opts: { restaurantApproval?: { contactName: string; channel: string; note?: string } } = {}): Promise<Order> {
+  async cancel(orderId: string, actor: ActorRef, reason: string, opts: { restaurantApproval?: { contactName: string; channel: string; note?: string }; refundTo?: 'ORIGINAL_PAYMENT' | 'WALLET' } = {}): Promise<Order> {
     const order = await this.getById(orderId);
     if (actor.type === ActorType.CUSTOMER) {
       if (!this.customerCancelWindow(order).open) {
@@ -715,6 +729,10 @@ export class OrdersService implements IOrdersService {
     }
     if ((order.status === OrderStatus.PICKED_UP || order.status === OrderStatus.ON_THE_WAY) && actor.type === ActorType.STAFF && !actor.supportApproved) {
       throw new ForbiddenException('Cancelling after pickup needs support approval');
+    }
+    // where the money goes: back to the payment method used (default), or into the customer's Forky wallet to spend on the next order
+    if (opts.refundTo === 'WALLET' || opts.refundTo === 'ORIGINAL_PAYMENT') {
+      await this.orders.update(order.id, { meta: { ...(order.meta ?? {}), refundTo: opts.refundTo } as Record<string, any> });
     }
     return this.transition(orderId, OrderStatus.CANCELLED, actor, { reason });
   }
@@ -890,6 +908,37 @@ export class OrdersService implements IOrdersService {
     return this.getById(order.id);
   }
 
+  /** The driver of an order as the restaurant may see him: enough to recognise him at the counter or to reach him in an emergency. */
+  private restaurantDriverCard(d: DriverProfile | undefined) {
+    if (!d) return null;
+    return { name: `${d.user?.firstName ?? ''} ${d.user?.lastName?.[0] ? d.user.lastName[0] + '.' : ''}`.trim(), vehicleType: d.vehicleType, vehicleColor: d.vehicleColor, licensePlate: d.licensePlate, lat: d.lat, lng: d.lng, lastLocationAt: d.lastLocationAt, phone: d.user?.phone ?? null };
+  }
+
+  async driverCardFor(driverId: string | null) {
+    if (!driverId) return null;
+    return this.restaurantDriverCard((await this.drivers.findOne({ where: { id: driverId }, relations: ['user'] })) ?? undefined);
+  }
+
+  /** Orders already in a driver's hands (picked up / on the way) for the restaurant's "Out for delivery" tab: who has it, how to recognise them, where they are. */
+  async outForDelivery(restaurantId: string) {
+    const rows = await this.orders.find({ where: [{ restaurantId, status: OrderStatus.PICKED_UP }, { restaurantId, status: OrderStatus.ON_THE_WAY }], order: { pickedUpAt: 'DESC' }, take: 100 });
+    const ids = [...new Set(rows.map((o) => o.driverId).filter((x): x is string => !!x))];
+    const profiles = ids.length ? await this.drivers.find({ where: ids.map((id) => ({ id })), relations: ['user'] }) : [];
+    const byId = new Map(profiles.map((d) => [d.id, d]));
+    return rows.map((o) => {
+      const d = o.driverId ? byId.get(o.driverId) : undefined;
+      return {
+        id: o.id,
+        code: o.code,
+        status: o.status,
+        total: o.total,
+        pickedUpAt: o.pickedUpAt,
+        estimatedDeliveryAt: o.estimatedDeliveryAt,
+        driver: this.restaurantDriverCard(d),
+      };
+    });
+  }
+
   async driverArrived(orderId: string, stage: 'RESTAURANT' | 'CUSTOMER', actor: ActorRef, opts: { lat?: number; lng?: number } = {}): Promise<Order> {
     const order = await this.getById(orderId);
     const field = stage === 'RESTAURANT' ? 'driverArrivedRestaurantAt' : 'driverArrivedCustomerAt';
@@ -1045,7 +1094,8 @@ export class OrdersService implements IOrdersService {
       sentToKitchen: viewer === 'CUSTOMER' || full ? this.isReleased(order) : undefined,
       canCancel: cancelWindow ? cancelWindow.open : undefined,
       cancelUntil: cancelWindow?.until ?? undefined,
-      pickupCode: viewer === 'DRIVER' || full ? order.pickupCode : viewer === 'CUSTOMER' ? order.pickupCode : null,
+      // the driver never gets a pickup code for a delivery: he tells the restaurant the order number; only a customer collecting in store has a code
+      pickupCode: viewer === 'DRIVER' ? (order.fulfilment === FulfilmentMode.PICKUP ? order.pickupCode : null) : full || viewer === 'CUSTOMER' ? order.pickupCode : null,
       deliveryPin: (viewer === 'CUSTOMER' || full) && order.requiresPin ? order.deliveryPin : null,
       dropoff,
       kitchenNotes: viewer === 'DRIVER' ? null : order.customerNotes,

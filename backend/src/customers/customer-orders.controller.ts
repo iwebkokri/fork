@@ -1,6 +1,6 @@
 import { Body, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { IsString, MaxLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { CustomerController, CurrentUser } from '../common/decorators';
 import { AuthUser } from '../common/auth.types';
 import { PageQueryDto } from '../common/pagination';
@@ -9,6 +9,8 @@ import { CustomerOrdersQuery, ItemRemovalResponseDto, PlaceOrderDto, TipDto, Upd
 
 class CancelOrderDto {
   @IsString() @MaxLength(500) reason: string;
+  /** where the refund goes: the payment method used (default) or the Forky wallet */
+  @IsOptional() @IsIn(['ORIGINAL_PAYMENT', 'WALLET']) refundTo?: 'ORIGINAL_PAYMENT' | 'WALLET';
 }
 
 /**
@@ -39,7 +41,7 @@ export class CustomerOrdersController {
 
   @Post(':id/cancel')
   cancel(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: CancelOrderDto) {
-    return this.checkout.cancel(user.id, id, dto.reason);
+    return this.checkout.cancel(user.id, id, dto.reason, dto.refundTo);
   }
 
   @Post(':id/reorder')

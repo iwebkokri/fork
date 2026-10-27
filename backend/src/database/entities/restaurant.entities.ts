@@ -622,6 +622,42 @@ export class MenuItem extends BaseEntity {
   @Column({ type: 'jsonb', default: [] })
   dietaryTags: string[]; // vegan, vegetarian, halal, gluten-free...
 
+  /** how hot the dish is: NONE | MILD | MEDIUM | HOT | EXTRA_HOT (null = not stated) */
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  spiceLevel: 'NONE' | 'MILD' | 'MEDIUM' | 'HOT' | 'EXTRA_HOT' | null;
+
+  /** size of the item in centimetres (a cake, a pizza box, a gift basket, a product); each optional */
+  @QtyColumn({ nullable: true })
+  lengthCm: number | null;
+
+  @QtyColumn({ nullable: true })
+  widthCm: number | null;
+
+  @QtyColumn({ nullable: true })
+  heightCm: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  ingredients: string | null;
+
+  /** allergens that may be present through cross-contact ("may contain"); `allergens` are the ones the item contains */
+  @Column({ type: 'jsonb', default: [] })
+  mayContain: string[];
+
+  /** per serving: { fatG, satFatG, carbsG, sugarG, fibreG, proteinG, sodiumMg } */
+  @Column({ type: 'jsonb', nullable: true })
+  nutrition: Record<string, number> | null;
+
+  /** "1 slice (120 g)" - what the calories and nutrition refer to */
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  servingSize: string | null;
+
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  countryOfOrigin: string | null;
+
+  /** "Keep refrigerated, use within 3 days" */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  storage: string | null;
+
   @Column({ default: 0 })
   sortOrder: number;
 

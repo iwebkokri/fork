@@ -12,6 +12,26 @@ export const hasRequiredChoices = (item) => (item.modifierGroups || []).some((g)
 
 export const itemDisabled = (item, restaurantClosed) => restaurantClosed || item.available === false;
 
+const SPICE_TEXT = { MILD: "mild", MEDIUM: "medium", HOT: "hot", EXTRA_HOT: "extra hot" };
+const NUTRITION_TEXT = { fatG: "Fat", satFatG: "Saturated fat", carbsG: "Carbs", sugarG: "Sugar", fibreG: "Fibre", proteinG: "Protein", sodiumMg: "Sodium" };
+
+/** size, ingredients, nutrition, origin and storage of an item, when the store filled them in */
+function ItemFacts({ item }) {
+  const d = item.dimensions;
+  const size = d ? [d.lengthCm, d.widthCm, d.heightCm].filter((v) => v != null).join(" x ") : "";
+  const nutrition = Object.entries(item.nutrition || {}).filter(([k]) => NUTRITION_TEXT[k]);
+  if (!size && !item.ingredients && !nutrition.length && !item.countryOfOrigin && !item.storage) return null;
+  return (
+    <div className="sf-small sf-muted mt-2" data-testid="item-facts">
+      {size && <div>Size: {size} cm</div>}
+      {item.ingredients && <div>Ingredients: {item.ingredients}</div>}
+      {nutrition.length > 0 && <div>{item.servingSize ? `Per ${item.servingSize}: ` : "Nutrition: "}{nutrition.map(([k, v]) => `${NUTRITION_TEXT[k]} ${v}${k === "sodiumMg" ? " mg" : " g"}`).join(", ")}</div>}
+      {item.countryOfOrigin && <div>Origin: {item.countryOfOrigin}</div>}
+      {item.storage && <div>Storage: {item.storage}</div>}
+    </div>
+  );
+}
+
 function initialSelection(item) {
   const sel = {};
   for (const g of item.modifierGroups || []) {
@@ -132,8 +152,11 @@ export default function ItemDialog({ item, open, onClose, onAdd, disabledReason,
           <span key={t} className="sf-tag sf-tag-ok">{t}</span>
         ))}
         {(item.allergens || []).length > 0 && <span className="sf-tag sf-tag-warn">Contains: {item.allergens.join(", ")}</span>}
-        {item.calories ? <span className="sf-tag">{item.calories} cal</span> : null}
+        {(item.mayContain || []).length > 0 && <span className="sf-tag sf-tag-warn">May contain: {item.mayContain.join(", ")}</span>}
+        {item.spiceLevel && item.spiceLevel !== "NONE" && <span className="sf-tag" data-testid="item-spice">Spice: {SPICE_TEXT[item.spiceLevel] || item.spiceLevel}</span>}
+        {item.calories ? <span className="sf-tag">{item.calories} cal{item.servingSize ? ` per ${item.servingSize}` : ""}</span> : null}
       </div>
+      <ItemFacts item={item} />
       {minAge > 0 && (
         <Notice tone="warn" icon="id-card-line">
           <span data-testid="age-notice">{ageNotice(minAge)}</span>

@@ -16,6 +16,7 @@ import {
 import { DayPart, DocStatus, RestaurantDocType } from '../common/enums';
 import { cleanGallery, cleanImageUrl } from '../common/image-url';
 import { MIN_AGES } from '../common/store-types';
+import { cleanNutrition, cleanTags, nutritionToCell, parseNutritionCell, SPICE_LEVELS } from '../common/menu-details';
 import { clampPaging, like, pageMeta } from '../common/pagination';
 import { SettingsService } from '../settings/settings.service';
 import { CategoryDto, CatalogFieldsDto, ItemDto, ModifierGroupDto, ModifierOptionDto, StockUpdateRowDto } from './dto';
@@ -92,6 +93,17 @@ export const MENU_CSV_HEADER = [
   'max_per_order',
   'min_age',
   'temperature',
+  // menu details (any store type); optional in an import, an empty cell leaves the value untouched
+  'spice_level',
+  'length_cm',
+  'width_cm',
+  'height_cm',
+  'ingredients',
+  'may_contain',
+  'serving_size',
+  'nutrition',
+  'country_of_origin',
+  'storage',
 ];
 
 @Injectable()
@@ -324,6 +336,30 @@ export class MenuService {
       out.minAge = age;
     }
     if (has('temperature')) out.temperature = dto.temperature!;
+
+    // menu details
+    if (has('spiceLevel')) {
+      if (dto.spiceLevel !== null && !(SPICE_LEVELS as readonly string[]).includes(dto.spiceLevel!)) throw new BadRequestException(`spiceLevel must be one of ${SPICE_LEVELS.join(', ')}`);
+      out.spiceLevel = dto.spiceLevel ?? null;
+    }
+    for (const k of ['lengthCm', 'widthCm', 'heightCm'] as const) {
+      if (!has(k)) continue;
+      const n = dto[k];
+      if (n !== null && (!Number.isFinite(Number(n)) || Number(n) < 0 || Number(n) > 10_000)) throw new BadRequestException(`${k} must be a number between 0 and 10000 (centimetres)`);
+      out[k] = n === null || n === undefined ? null : Math.round(Number(n) * 100) / 100;
+    }
+    if (has('ingredients')) out.ingredients = clean(dto.ingredients);
+    if (has('mayContain')) out.mayContain = cleanTags(dto.mayContain);
+    if (has('nutrition')) {
+      try {
+        out.nutrition = cleanNutrition(dto.nutrition) as any;
+      } catch (e: any) {
+        throw new BadRequestException(e.message);
+      }
+    }
+    if (has('servingSize')) out.servingSize = clean(dto.servingSize);
+    if (has('countryOfOrigin')) out.countryOfOrigin = clean(dto.countryOfOrigin);
+    if (has('storage')) out.storage = clean(dto.storage);
     return out;
   }
 
@@ -775,13 +811,33 @@ export class MenuService {
         i.maxPerOrder ?? '',
         i.minAge ?? 0,
         i.temperature ?? 'AMBIENT',
+        i.spiceLevel ?? '',
+        i.lengthCm ?? '',
+        i.widthCm ?? '',
+        i.heightCm ?? '',
+        i.ingredients ?? '',
+        (i.mayContain ?? []).join('|'),
+        i.servingSize ?? '',
+        nutritionToCell(i.nutrition as any),
+        i.countryOfOrigin ?? '',
+        i.storage ?? '',
       ]);
     }
     return toCsv(rows);
   }
 
+  /** A blank file with the header and two example rows, to fill in and import. */
+  csvTemplate(): string {
+    const ex = (o: Record<string, unknown>) => MENU_CSV_HEADER.map((h) => o[h] ?? '');
+    return toCsv([
+      MENU_CSV_HEADER,
+      ex({ category: 'Mains', name: 'Butter chicken', description: 'Creamy tomato curry', price: 18.5, pickup_price: 17, tax_class: 'HST_ON', calories: 720, allergens: 'milk|tree nuts', dietary_tags: 'halal', prep_time_min: 15, available: 'true', modifier_groups: 'Size(req,1,1)=Regular+0|Large+4;Spice level(req,1,1)=Mild+0|Medium+0|Hot+0', spice_level: 'MEDIUM', may_contain: 'peanuts', serving_size: '1 bowl (350 g)', nutrition: 'fat_g=32|carbs_g=40|protein_g=38|sodium_mg=1100', country_of_origin: 'Canada', ingredients: 'Chicken, tomato, cream, butter, spices' }),
+      ex({ category: 'Bakery', name: 'Birthday cake', price: 42, sku: 'CAKE-01', sell_by: 'UNIT', length_cm: 25, width_cm: 25, height_cm: 12, pack_size: '1 cake, serves 10', storage: 'Keep refrigerated, eat within 3 days', temperature: 'CHILLED', allergens: 'wheat|eggs|milk', min_age: 0 }),
+    ]);
+  }
+
   /** mode=merge (default): upsert by category+name; mode=replace: wipe the existing menu first. */
-  async importCsv(restaurantId: string, csv: string, mode: 'merge' | 'replace' = 'merge') {
+  async importCsv(restaurantId: string, csv: string, mode: 'merge' | 'replace' = 'merge', dryRun = false) {
     const rows = parseCsv(csv);
     if (rows.length < 2) throw new BadRequestException('CSV needs a header row and at least one item row');
     const header = rows[0].map((h) => h.trim().toLowerCase());
@@ -843,6 +899,24 @@ export class MenuService {
           if (v !== 'AMBIENT' && v !== 'CHILLED' && v !== 'FROZEN') throw new Error('temperature must be AMBIENT, CHILLED or FROZEN');
           catalog.temperature = v;
         }
+        if (cell('spice_level')) {
+          const v = cell('spice_level').toUpperCase().replace(/[\s-]+/g, '_');
+          if (!(SPICE_LEVELS as readonly string[]).includes(v)) throw new Error(`spice_level must be one of ${SPICE_LEVELS.join(', ')}`);
+          catalog.spiceLevel = v as any;
+        }
+        for (const [col2, key] of [['length_cm', 'lengthCm'], ['width_cm', 'widthCm'], ['height_cm', 'heightCm']] as const) {
+          const n = numCell(col2);
+          if (n !== undefined) {
+            if (n < 0 || n > 10_000) throw new Error(`${col2} must be between 0 and 10000`);
+            (catalog as any)[key] = n;
+          }
+        }
+        if (cell('ingredients')) catalog.ingredients = cell('ingredients');
+        if (cell('may_contain')) catalog.mayContain = cell('may_contain').split(/[|;]/).map((x) => x.trim()).filter(Boolean);
+        if (cell('serving_size')) catalog.servingSize = cell('serving_size');
+        if (cell('nutrition')) catalog.nutrition = parseNutritionCell(cell('nutrition')) as any;
+        if (cell('country_of_origin')) catalog.countryOfOrigin = cell('country_of_origin');
+        if (cell('storage')) catalog.storage = cell('storage');
         if (catalog.sku) {
           if (seenSkus.has(catalog.sku.toLowerCase())) throw new Error(`sku "${catalog.sku}" appears twice in this file`);
           seenSkus.add(catalog.sku.toLowerCase());
@@ -873,6 +947,7 @@ export class MenuService {
     if (errors.length) throw new BadRequestException({ message: 'CSV has errors - nothing was imported', details: errors });
     // age-restricted products need the store's licence: refuse the whole file up front instead of failing half way
     if (parsed.some((p) => (p.catalog.minAge ?? 0) > 0)) await this.assertMayListAgeRestricted(restaurantId);
+    if (dryRun) return { ok: true, dryRun: true, total: parsed.length, mode };
 
     if (mode === 'replace') {
       const ids = (await this.items.find({ where: { restaurantId }, select: ['id'] })).map((i) => i.id);

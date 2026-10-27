@@ -21,8 +21,8 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
  * Offer loop engine (spec 5.4): one driver at a time, 30 s window (per-city `offerTimeoutSec`), scoring via
- * DispatchRankingService, radius widening after `offersBeforeWiden` offers (+ pay boost), escalation to the
- * dispatcher after `maxRadiusWidenings` widenings (the search keeps retrying slowly even once escalated).
+ * DispatchRankingService, radius widening ring by ring (2/5/10/20/30 km) after `offersBeforeWiden` offers (+ extra pay per km for far drivers), escalation to the
+ * dispatcher after the widest ring (`dispatch.radiusRingsKm`) (the search keeps retrying slowly even once escalated).
  * State is persisted at `orders.meta.dispatch` (DispatchMeta) so the loop survives process restarts; `tick()`
  * (every 5 s) drives WAITING -> ACTIVE transitions, offer expiry and retries; accept/decline advance immediately.
  */
@@ -75,12 +75,12 @@ export class DispatchService implements IDispatchService {
     await this.orders.update(order.id, { meta: { ...(order.meta ?? {}), dispatch: d } as Record<string, any> });
   }
 
-  /** widen the search radius (and pay boost); returns false when already at the widening cap. */
-  private widen(d: DispatchMeta, city: City): boolean {
-    if (d.widenings >= city.maxRadiusWidenings) return false;
+  /** widen the search to the next ring (2, 5, 10, 20, 30 km); returns false when already in the widest one. The extra pay for far drivers is added per offer. */
+  private widen(d: DispatchMeta): boolean {
+    const next = this.ranking.nextRadiusKm(d.radiusKm);
+    if (next === null) return false;
     d.widenings++;
-    d.radiusKm = round2(d.radiusKm + Number(city.radiusWidenStepKm));
-    d.boost = round2(d.boost + Number(city.widenBoostAmount));
+    d.radiusKm = next;
     d.offersInRound = 0;
     d.lastEvent = `WIDENED_R${d.widenings}`;
     return true;
@@ -356,10 +356,10 @@ export class DispatchService implements IDispatchService {
       }
 
       let candidate: RankedCandidate | null = null;
-      const maxLoops = city.maxRadiusWidenings + 2;
+      const maxLoops = this.ranking.radiusRings().length + 1;
       for (let i = 0; i < maxLoops; i++) {
         if (d.offersInRound >= city.offersBeforeWiden) {
-          if (!this.widen(d, city)) {
+          if (!this.widen(d)) {
             await this.escalateOnce(order, d);
             break;
           }
@@ -370,7 +370,7 @@ export class DispatchService implements IDispatchService {
           break;
         }
         d.emptyAttempts++;
-        if (!this.widen(d, city)) {
+        if (!this.widen(d)) {
           await this.escalateOnce(order, d);
           break;
         }
@@ -398,7 +398,7 @@ export class DispatchService implements IDispatchService {
           pickupDistanceKm: candidate.distanceKm,
           dropoffDistanceKm: candidate.dropKm,
           estimatedPay: candidate.estimatedPay,
-          boostAmount: d.boost + d.manualBoost,
+          boostAmount: round2(d.boost + d.manualBoost + candidate.distanceExtra),
           score: candidate.score,
           scoreBreakdown: candidate.breakdown,
         }),

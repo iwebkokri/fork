@@ -564,7 +564,7 @@ export class PaymentsService implements IPaymentsService {
    * An order placed before "charge at checkout" is still a hold: it is released, or partially captured for the fee (Stripe releases the rest).
    * Returns what happened so the caller can word the message: 'refunded' (money was charged and went back), 'released' (an old hold) or 'none' (no card payment).
    */
-  async refundOnCancel(order: Order, keep = 0): Promise<{ mode: 'refunded' | 'released' | 'none'; refunded: number; kept: number }> {
+  async refundOnCancel(order: Order, keep = 0, toWallet = false): Promise<{ mode: 'refunded' | 'released' | 'none'; refunded: number; kept: number; walletCredit?: number }> {
     if (!order.paymentIntentId) return { mode: 'none', refunded: 0, kept: 0 }; // wallet only: the caller returns the wallet credit
     if (!(await this.hasCharge(order))) {
       if (keep > 0.009) await this.capture(order, keep);
@@ -573,6 +573,8 @@ export class PaymentsService implements IPaymentsService {
     }
     const charged = (await this.chargedAndRefunded(order)).room;
     const back = round2(Math.max(0, charged - keep));
+    // the customer asked for the money in their wallet: nothing goes back to the card, the caller credits the wallet
+    if (toWallet && back >= 0.01) return { mode: 'refunded', refunded: 0, kept: round2(Math.min(keep, charged)), walletCredit: back };
     if (back >= 0.01) await this.refund(order, back, 'ORDER_CANCELLED', `cancel-${order.id}`);
     return { mode: 'refunded', refunded: back >= 0.01 ? back : 0, kept: round2(Math.min(keep, charged)) };
   }

@@ -17,14 +17,14 @@
 `OrdersService.assignDriver`: from `ACCEPTED`/`PREPARING` it moves to `DRIVER_ASSIGNED` (legacy); from `READY` (or later, e.g. admin reassign) it records the driver **without changing the status** (timeline event `DRIVER_ASSIGNED`, realtime `order.driver_assigned`). `unassignDriver` keeps `READY`, frees the driver, and with `{ redispatch: true }` (admin `POST /admin/live-map/orders/:id/unassign`) restarts dispatch excluding the removed driver. Cancelling/rejecting an order also frees its driver (`onTrip=false`).
 
 ### Who is eligible (all automatic; reasons visible in `GET /admin/live-map/orders/:id/candidates`)
-`OFFLINE`, `STALE_LOCATION` (GPS older than `dispatch.locationFreshSec`, 120 s), `NOT_APPROVED_FOR_ZONE`, `OUT_OF_RADIUS` (current radius, start `dispatch.maxInitialRadiusKm` = 4 km), `HAS_PENDING_OFFER`, `ON_TRIP` / `BATCH_*`, `VEHICLE_TOO_FAR`, `ORDER_TOO_LARGE_FOR_VEHICLE`.
+`OFFLINE`, `STALE_LOCATION` (GPS older than `dispatch.locationFreshSec`, 120 s), `NOT_APPROVED_FOR_ZONE`, `OUT_OF_RADIUS` (current ring; the search starts in the first ring of `dispatch.radiusRingsKm`, default 2 km), `HAS_PENDING_OFFER`, `ON_TRIP` / `BATCH_*`, `VEHICLE_TOO_FAR`, `ORDER_TOO_LARGE_FOR_VEHICLE`.
 
 ## Offer loop behaviour (spec 5.4)
 
 - One driver offered at a time; window = `City.offerTimeoutSec` (default 30s).
 - Ready-time matching (only with `dispatch.startOn = ACCEPTED`; skipped entirely when the order is already `READY`): `startDispatch` computes the order's expected ready time (`Order.estimatedReadyAt`) and, using the nearest currently-visible candidate's ETA (or setting `dispatch.assumedPickupEtaMin` if none are online yet), delays the loop (`WAITING` state) so the driver is not sent more than `dispatch.readyMatchWindowMin` minutes before food is ready.
-- After `City.offersBeforeWiden` offers (default 3) with no acceptance, the search radius widens by `City.radiusWidenStepKm` and a pay boost of `City.widenBoostAmount` is added (`DriverOffer.boostAmount`, folded into `Order.driverBoost` via `OrdersService.assignDriver`).
-- After `City.maxRadiusWidenings` widenings (default 2), the order is escalated: `Order.unassignedFlag = true` (drives the live-map RED flag), an ops notification (`order.no_driver`) + `dispatch.escalated` realtime event fire once, and the search **keeps retrying** slowly (`dispatch.escalatedRetrySec`, default 45s) rather than stopping.
+- After `City.offersBeforeWiden` offers (default 3) with no acceptance, (or at once when nobody is found in the ring) the search widens to the next ring of `dispatch.radiusRingsKm` (default 2, 5, 10, 20, 30 km). A driver whose pickup distance is beyond `dispatch.extraFreeKm` (default 2 km) is offered extra pay of `dispatch.extraPerKm` (default $0.18) per km beyond it: `DriverOffer.boostAmount`, folded into `Order.driverBoost` via `OrdersService.assignDriver` and shown in the offer's estimated pay.
+- After the widest ring (30 km by default) the order is escalated: `Order.unassignedFlag = true` (drives the live-map RED flag), an ops notification (`order.no_driver`) + `dispatch.escalated` realtime event fire once, and the search **keeps retrying** slowly (`dispatch.escalatedRetrySec`, default 45s) rather than stopping.
 - State machine persisted at `Order.meta.dispatch` (`DispatchMeta`): `WAITING -> ACTIVE -> (ESCALATED) -> ASSIGNED`, or `MANUAL` when `dispatch.autoAssign` is off, or `STOPPED`/`MANUAL_HOLD` when a dispatcher takes over.
 - Realtime events: `driver.offer` / `driver.offer.cancelled` (to `driver:{id}`), `dispatch.offer_sent` / `dispatch.escalated` / `driver.stationary` (to `admin:ops`). Notification event `driver.offer` (DRIVER audience).
 
@@ -60,7 +60,7 @@ Base path `/api/v1/driver/offer`. Driver app only (`DriverController`). Placehol
 | `dispatch.assumedPickupEtaMin` | 8 | Fallback "time to find + drive a driver here" used for ready-time matching when no candidate is visible yet at `startDispatch` time. |
 | `dispatch.escalatedRetrySec` | 45 | How often the loop retries once an order has been escalated to the dispatcher. |
 
-(Existing dispatch settings reused as-is: `dispatch.autoAssign`, `dispatch.maxInitialRadiusKm`, `dispatch.readyMatchWindowMin`, `dispatch.weights`, `dispatch.batching.enabled`, `dispatch.bikeMaxDistanceKm`, `dispatch.bikeMaxSubtotal`, `dispatch.driverMissingAlertMin`; per-city tuning on `City`: `offerTimeoutSec`, `offersBeforeWiden`, `maxRadiusWidenings`, `radiusWidenStepKm`, `widenBoostAmount`, batching fields.)
+(Existing dispatch settings reused as-is: `dispatch.autoAssign`, `dispatch.radiusRingsKm`, `dispatch.extraPerKm`, `dispatch.extraFreeKm`, `dispatch.readyMatchWindowMin`, `dispatch.weights`, `dispatch.batching.enabled`, `dispatch.bikeMaxDistanceKm`, `dispatch.bikeMaxSubtotal`, `dispatch.driverMissingAlertMin`; per-city tuning on `City`: `offerTimeoutSec`, `offersBeforeWiden`, `maxRadiusWidenings`, `radiusWidenStepKm`, `widenBoostAmount`, batching fields.)
 
 ## Entities
 
