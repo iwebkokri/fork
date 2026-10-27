@@ -40,7 +40,7 @@
     "@nestjs/swagger": "^11.0.0",
     "@nestjs/throttler": "^6.0.0",
     "@nestjs/typeorm": "^11.0.0",
-    "@nestjs/websockets": "^11.0.0",
+    "@nestjs/websockets": "^12.1.2",
     "@types/sanitize-html": "^2.16.2",
     "bcryptjs": "^2.4.3",
     "class-transformer": "^0.5.1",
