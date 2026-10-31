@@ -50,6 +50,12 @@ export class DriverVerification implements AudienceHandler {
   }
 
   /** every active zone of the driver's city: what an unattended activation gives them (staff can narrow it later) */
+  /** Zones a newly active driver starts with: the local zone they signed up from; if none was recorded, every active zone of their city (as before). */
+  private async startingZones(p: DriverProfile): Promise<string[]> {
+    const own = await this.core.registrationZoneId(p);
+    return own ? [own] : this.cityZoneIds(p.cityId);
+  }
+
   private async cityZoneIds(cityId: string | null): Promise<string[]> {
     if (!cityId) return [];
     return (await this.zones.find({ where: { cityId, active: true }, select: ['id'] })).map((z) => z.id);
@@ -92,7 +98,7 @@ export class DriverVerification implements AudienceHandler {
   }
 
   private async activateInstantly(p: DriverProfile) {
-    const zoneIds = await this.cityZoneIds(p.cityId);
+    const zoneIds = await this.startingZones(p);
     await this.core.changeStatus(p, DriverStatus.ACTIVE, SYSTEM, 'Instant registration (not verified)', {
       approvedAt: new Date(),
       zoneIds,
@@ -206,7 +212,7 @@ export class DriverVerification implements AudienceHandler {
       Object.assign(p, fields);
       await this.core.profiles.save(p);
     } else {
-      const zoneIds = p.zoneIds?.length ? p.zoneIds : await this.cityZoneIds(p.cityId);
+      const zoneIds = p.zoneIds?.length ? p.zoneIds : await this.startingZones(p);
       await this.core.changeStatus(p, DriverStatus.ACTIVE, by ? { type: ActorType.STAFF, id: by } : SYSTEM, note, { ...fields, approvedAt: p.approvedAt ?? now, zoneIds });
       await this.core.sendWelcome(p);
     }

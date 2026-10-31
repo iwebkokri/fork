@@ -43,3 +43,17 @@ export function checkZoneSelection(o: {
   }
   return ids;
 }
+
+/**
+ * The zone to switch on for a driver when their account is approved: the one they signed up from, if it is still active and still in their city.
+ * `null` means there is nothing to apply (no zone recorded, or it no longer qualifies) and the driver picks zones themselves.
+ */
+export function registrationZoneFor(
+  profile: { cityId: string | null; meta?: Record<string, any> | null },
+  zone: { id: string; cityId: string; active: boolean } | null | undefined,
+): string | null {
+  const wanted = profile.meta?.registrationZoneId;
+  if (!wanted || !zone || zone.id !== wanted || !zone.active) return null;
+  if (profile.cityId && zone.cityId !== profile.cityId) return null;
+  return zone.id;
+}

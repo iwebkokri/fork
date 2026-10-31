@@ -87,6 +87,8 @@ export class DriverRegisterDto {
   /** phone OTP obtained from /auth/otp/request (purpose SIGNUP) */
   @IsString() @MaxLength(12) otpCode: string;
   @IsUUID() cityId: string;
+  /** the local zone the courier works in (picked, or detected from their location); switched on for them once their account is approved */
+  @IsOptional() @IsUUID() zoneId?: string;
   @IsEnum(VehicleType) vehicleType: VehicleType;
   @IsOptional() @IsString() @MaxLength(60) vehicleMake?: string;
   @IsOptional() @IsString() @MaxLength(60) vehicleModel?: string;

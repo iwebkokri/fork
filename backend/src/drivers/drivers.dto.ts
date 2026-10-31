@@ -98,7 +98,8 @@ export class ApproveDto {
 }
 
 export class ActivateDto {
-  @IsArray() @ArrayMaxSize(50) @IsUUID('all', { each: true }) zoneIds: string[];
+  /** leave empty to keep the zone switched on at approval (the local zone the courier signed up from) */
+  @IsOptional() @IsArray() @ArrayMaxSize(50) @IsUUID('all', { each: true }) zoneIds?: string[];
   @IsBoolean() insulatedBagConfirmed: boolean;
 }
 
