@@ -9,6 +9,8 @@ Enums: DriverStatus `APPLIED, DOCS_REVIEW, BACKGROUND_CHECK, TRAINING, APPROVED,
 
 Staff switch **Open for drivers to join** on a zone (admin console, Platform > Zones, or `PATCH /admin/zones/:id {driversOpen:true}`). The driver app then highlights that zone on its map and a driver adds it with one tap (`POST /driver/zones/:zoneId`). Each driver can have at most `driver.maxZones` zones (default **4**); zones must be active, open and in the driver's city; a zone the driver already has stays theirs even if staff close sign-up later; a zone cannot be removed while the driver is online in it. Requires migration `AddZoneDriversOpen` (`zones.driversOpen`, default false).
 
+**Signup zone.** `POST /auth/driver/register` accepts an optional `zoneId` (the local zone the courier works in; the app preselects it from the courier's location and lets them change it). It must be active and in the chosen `cityId`. It is kept on the profile (`meta.registrationZoneId`) and switched on for the driver automatically when the account is approved or activated (staff approval, verification, instant registration), unless the driver already has zones. Staff can still choose other zones when activating; activating without choosing keeps the signup zone. Sign-ups made without a zone behave as before.
+
 ## Admin `/admin/drivers` (staff)
 
 | Method | Path | Perm | Request | Response |

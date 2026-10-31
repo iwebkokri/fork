@@ -10,6 +10,7 @@ import { DataSource, In, IsNull, MoreThan, Repository } from 'typeorm';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import {
   City,
+  Zone,
   CustomerProfile,
   Cuisine,
   DriverProfile,
@@ -597,6 +598,14 @@ export class AuthService {
     if (await this.users.findOne({ where: { phone } })) throw new ConflictException('Phone already registered');
     const city = await this.ds.getRepository(City).findOne({ where: { id: dto.cityId } });
     if (!city) throw new BadRequestException('Unknown city');
+    // the local zone the courier signed up from: it is switched on for them when their account is approved
+    let registrationZoneId: string | null = null;
+    if (dto.zoneId) {
+      const zone = await this.ds.getRepository(Zone).findOne({ where: { id: dto.zoneId } });
+      if (!zone || !zone.active) throw new BadRequestException('Unknown zone');
+      if (zone.cityId !== dto.cityId) throw new BadRequestException('That zone is not in the chosen city');
+      registrationZoneId = zone.id;
+    }
     const { user, profileId } = await this.ds.transaction(async (em) => {
       const u = await em.save(
         em.create(User, {
@@ -621,6 +630,7 @@ export class AuthService {
           vehicleModel: dto.vehicleModel ?? null,
           vehicleColor: dto.vehicleColor ?? null,
           licensePlate: dto.licensePlate ?? null,
+          meta: registrationZoneId ? { registrationZoneId } : {},
         }),
       );
       return { user: u, profileId: profile.id };

@@ -506,10 +506,12 @@ export class DriversAdminService {
   async activate(id: string, dto: ActivateDto, admin: AuthUser) {
     const d = await this.core.getProfile(id);
     if (d.status !== DriverStatus.APPROVED) throw new BadRequestException(`Driver must be APPROVED first (currently ${d.status})`);
-    if (!dto.zoneIds.length) throw new BadRequestException('Choose at least one zone');
+    // staff may choose zones; otherwise the courier keeps the one switched on at approval (the local zone they signed up from)
+    const zoneIds = dto.zoneIds?.length ? dto.zoneIds : (d.zoneIds ?? []);
+    if (!zoneIds.length) throw new BadRequestException('Choose at least one zone');
     if (!dto.insulatedBagConfirmed) throw new BadRequestException('Insulated bag must be confirmed');
-    await this.assertZones(dto.zoneIds);
-    await this.core.changeStatus(d, DriverStatus.ACTIVE, this.actor(admin), null, { zoneIds: dto.zoneIds, insulatedBagConfirmed: true });
+    await this.assertZones(zoneIds);
+    await this.core.changeStatus(d, DriverStatus.ACTIVE, this.actor(admin), null, { zoneIds, insulatedBagConfirmed: true });
     await this.core.sendWelcome(d);
     return { status: d.status, zoneIds: d.zoneIds };
   }

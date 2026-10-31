@@ -248,6 +248,8 @@ function driverFixture(extra: Record<string, any> = {}) {
       Object.assign(p, more);
       return p;
     },
+    // the real one also checks that the zone is still active and in the driver's city; the fake zones all qualify
+    registrationZoneId: async (p: any) => p.meta?.registrationZoneId ?? null,
     sendWelcome: async () => undefined,
     notifyDriver: async () => undefined,
     opsNotify: async (...a: any[]) => void calls.opsNotify.push(a),
@@ -269,6 +271,13 @@ async function driverTests() {
     const r = await dv.onRegistered('p1', pol({ [POLICY_KEYS.DRIVER.instant]: true }));
     const [to, more] = calls.changeStatus[0] ?? [];
     check('instant: the driver is made ACTIVE with every active zone of the city, UNVERIFIED / INSTANT, and told so', r.mode === M.INSTANT && to === DriverStatus.ACTIVE && more.zoneIds.join() === 'z1,z2' && more.verificationStatus === VerificationStatus.UNVERIFIED && more.verificationMethod === M.INSTANT && profile.status === DriverStatus.ACTIVE && r.verification.status === 'UNVERIFIED', JSON.stringify(r));
+  }
+  {
+    // a courier who signed up from a local zone starts with that zone, not with every zone of the city
+    const { dv, calls } = driverFixture({ meta: { registrationZoneId: 'z2' } });
+    await dv.onRegistered('p1', pol({ [POLICY_KEYS.DRIVER.instant]: true }));
+    const [, more] = calls.changeStatus[0] ?? [];
+    check('instant: a courier who signed up from a local zone starts with only that zone', more?.zoneIds?.join() === 'z2', JSON.stringify(more?.zoneIds));
   }
   await withEnv(PROD_NO_CERTN, async () => {
     const { dv, profile, calls } = driverFixture();

@@ -9,9 +9,11 @@ import {
   TrainingAttempt,
   TrainingModule,
   User,
+  Zone,
 } from '../database/entities';
 import { ActorType, DocStatus, DriverDocType, DriverStatus, NotificationChannel, UserStatus, UserType, VerificationMethod } from '../common/enums';
 import { ActorRef, Events, StatusChangedEvent } from '../common/contracts';
+import { registrationZoneFor } from './zone-rules';
 import { SettingsService } from '../settings/settings.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.module';
@@ -46,6 +48,7 @@ export class DriverCoreService {
     @InjectRepository(TrainingAttempt) readonly attempts: Repository<TrainingAttempt>,
     @InjectRepository(Incentive) readonly incentives: Repository<Incentive>,
     @InjectRepository(User) readonly users: Repository<User>,
+    @InjectRepository(Zone) readonly zoneRepo: Repository<Zone>,
     readonly settings: SettingsService,
     readonly notifications: NotificationsService,
     readonly rt: RealtimeService,
@@ -199,11 +202,24 @@ export class DriverCoreService {
     return { ok: reasons.length === 0, reasons };
   }
 
+  /** The zone the courier signed up from, if it still qualifies (see registrationZoneFor). */
+  async registrationZoneId(p: DriverProfile): Promise<string | null> {
+    const id = p.meta?.registrationZoneId;
+    if (!id) return null;
+    const zone = await this.zoneRepo.findOne({ where: { id } });
+    return registrationZoneFor(p, zone);
+  }
+
   async changeStatus(p: DriverProfile, to: DriverStatus, actor: ActorRef, reason?: string | null, extra: Partial<DriverProfile> = {}) {
     const from = p.status;
     p.status = to;
     p.statusReason = reason ?? null;
     Object.assign(p, extra);
+    // approved (or active) with no zone yet: switch on the local zone they signed up from
+    if ((to === DriverStatus.APPROVED || to === DriverStatus.ACTIVE) && !p.zoneIds?.length) {
+      const zoneId = await this.registrationZoneId(p);
+      if (zoneId) p.zoneIds = [zoneId];
+    }
     if (to !== DriverStatus.ACTIVE && p.isOnline) this.applyOffline(p);
     await this.profiles.save(p);
     if (from !== to) {
