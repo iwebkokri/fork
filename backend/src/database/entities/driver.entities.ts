@@ -138,7 +138,7 @@ export class DriverProfile extends BaseEntity {
 
   /** T4A info: SIN stored as last-3 only; full value is held by the tax provider. */
   @Column({ type: 'jsonb', nullable: true })
-  taxInfo: { sinLast3?: string; legalName?: string; address?: string; collectedAt?: string } | null;
+  taxInfo: { sinLast3?: string; sinLast4?: string; legalName?: string; address?: string; collectedAt?: string } | null;
 
   @Column({ type: 'varchar', default: 'WEEKLY' })
   payoutSchedule: 'WEEKLY' | 'INSTANT';
