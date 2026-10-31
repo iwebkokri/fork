@@ -77,6 +77,9 @@ export class DriverVerification implements AudienceHandler {
     // already handled (the event is raised once per sign-up, but staying idempotent costs nothing)
     if (p.status !== DriverStatus.APPLIED || p.verificationMethod) return this.result(p, p.verificationMethod ?? policy.mode);
 
+    // the zone they signed up from is full: they wait for a place (no instant activation, no staff queue, no Certn check) until they are invited
+    if (await this.core.waitlistIfFull(p)) return { ...this.result(p, VerificationMethod.MANUAL), waitlisted: true };
+
     if (policy.instant) {
       await this.activateInstantly(p);
       return this.result(p, VerificationMethod.INSTANT);

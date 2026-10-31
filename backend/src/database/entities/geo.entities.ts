@@ -173,6 +173,13 @@ export class Zone extends BaseEntity {
   /** Drivers needed per hour (supply forecast helper). */
   @Column({ default: 0 })
   targetDrivers: number;
+
+  /**
+   * How many drivers this zone takes (null = no limit). A courier who signs up from a full zone goes on the waiting list and cannot upload documents
+   * or go online; when staff raise the limit (or a place frees up) the longest-waiting couriers are invited to upload their documents and get verified.
+   */
+  @Column({ type: 'int', nullable: true })
+  driverCapacity: number | null;
 }
 
 @Entity('tax_classes')

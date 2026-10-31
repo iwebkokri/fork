@@ -9,12 +9,14 @@ export interface ZoneFacts {
   active: boolean;
   /** open for drivers to join (set by staff on the zone) */
   driversOpen: boolean;
+  /** the zone already has as many drivers as its limit */
+  full?: boolean;
 }
 
 /**
  * What a driver may do with their zones. Returns the new list of zone ids or throws a message the app can show as it is.
  *
- *  - a zone can only be ADDED while it is active and open for drivers, and only in the driver's own city;
+ *  - a zone can only be ADDED while it is active, open for drivers and not full, and only in the driver's own city;
  *  - zones the driver already has can always be kept (even if staff closed signing up since) or removed;
  *  - at most `max` zones in total (default 4);
  *  - a zone cannot be removed while the driver is online in it.
@@ -36,6 +38,7 @@ export function checkZoneSelection(o: {
     if (o.current.includes(id)) continue;
     const z = byId.get(id)!;
     if (!z.active || !z.driversOpen) throw new ForbiddenException(`${z.name} is not open for new drivers right now.`);
+    if (z.full) throw new ForbiddenException(`${z.name} is full right now. Try again later or pick another zone.`);
     if (o.driverCityId && z.cityId !== o.driverCityId) throw new ForbiddenException(`${z.name} is in another city.`);
   }
   if (o.onlineZoneId && o.current.includes(o.onlineZoneId) && !ids.includes(o.onlineZoneId)) {

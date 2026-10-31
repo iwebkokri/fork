@@ -18,6 +18,8 @@ export interface RegistrationResult {
   /** the lifecycle status after the policy was applied (ACTIVE / LIVE when instant, otherwise the application status) */
   accountStatus: string;
   verification: VerificationSummary;
+  /** the courier's zone is full: they are on its waiting list and nothing else happens until they are invited */
+  waitlisted?: boolean;
 }
 
 export interface ForceOptions {

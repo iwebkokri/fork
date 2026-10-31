@@ -638,7 +638,8 @@ export class AuthService {
     await this.audit.log({ actor: { id: user.id, email, type: UserType.DRIVER }, action: 'driver.apply', entity: 'user', entityId: user.id, ip: ctx.ip });
     // the Super Admin's registration policy decides what happens next: active at once (instant), the staff queue (manual) or the Certn check (automatic)
     const verification = await this.requestVerification('DRIVER', profileId);
-    this.notifications.notifyOps(verification?.mode === VerificationMethod.INSTANT ? 'driver.instant_activated' : 'driver.applied', { name: `${dto.firstName} ${dto.lastName}` }, { userId: user.id }).catch(() => undefined);
+    // a courier on a zone's waiting list is not a staff task yet: they are invited when a place opens
+    if (!verification?.waitlisted) this.notifications.notifyOps(verification?.mode === VerificationMethod.INSTANT ? 'driver.instant_activated' : 'driver.applied', { name: `${dto.firstName} ${dto.lastName}` }, { userId: user.id }).catch(() => undefined);
     return { ...(await this.completeLogin(user, ctx)), verification };
   }
 
@@ -651,7 +652,7 @@ export class AuthService {
     try {
       const answers: any[] = await this.events.emitAsync(Events.VERIFICATION_SUBJECT_REGISTERED, { audience, id } as SubjectRegisteredEvent);
       const r = answers.find((a) => a && typeof a === 'object' && a.mode);
-      return r ? { mode: r.mode as VerificationMethod, accountStatus: r.accountStatus as string, ...r.verification } : null;
+      return r ? { mode: r.mode as VerificationMethod, accountStatus: r.accountStatus as string, waitlisted: !!r.waitlisted, ...r.verification } : null;
     } catch (e: any) {
       this.logger.error(`verification of the new ${audience} ${id} failed: ${e.message}`);
       return null;

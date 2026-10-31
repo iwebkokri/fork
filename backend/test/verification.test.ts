@@ -250,6 +250,7 @@ function driverFixture(extra: Record<string, any> = {}) {
     },
     // the real one also checks that the zone is still active and in the driver's city; the fake zones all qualify
     registrationZoneId: async (p: any) => p.meta?.registrationZoneId ?? null,
+    waitlistIfFull: async () => false, // these tests are about the registration policy; the waiting list has its own test file
     sendWelcome: async () => undefined,
     notifyDriver: async () => undefined,
     opsNotify: async (...a: any[]) => void calls.opsNotify.push(a),
