@@ -1,9 +1,12 @@
 import { BadRequestException, Body, ConflictException, Delete, Get, Injectable, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { City, DriverProfile, Restaurant, Zone } from '../database/entities';
 import { AdminController, Permission, PublicController } from '../common/decorators';
+import { Events } from '../common/contracts';
 import { Action, Module as Mod } from '../common/enums';
+import { countWaitlisted, countZoneDrivers } from '../drivers/zone-capacity';
 import { PageQueryDto, paginateQb, like } from '../common/pagination';
 import { pointInPolygon } from '../common/geo.util';
 import { GeoService } from '../core/core.module';
@@ -76,6 +79,7 @@ export class GeographyService {
     private audit: AuditService,
     private rt: RealtimeService,
     private geo: GeoService,
+    private events: EventEmitter2,
   ) {}
 
   // ------------------------------------------------------------ cities
@@ -146,7 +150,17 @@ export class GeographyService {
     const rm = new Map(rc.map((r) => [r.zoneId, +r.n]));
     return {
       ...page,
-      data: page.data.map((z) => ({ ...z, city: z.city ? { id: z.city.id, name: z.city.name } : null, restaurantCount: rm.get(z.id) ?? 0, effective: this.geo.effective(z, z.city) })),
+      data: await Promise.all(
+        page.data.map(async (z) => ({
+          ...z,
+          city: z.city ? { id: z.city.id, name: z.city.name } : null,
+          restaurantCount: rm.get(z.id) ?? 0,
+          effective: this.geo.effective(z, z.city),
+          // how full the zone is: drivers holding a place, and couriers waiting for one
+          driverCount: await countZoneDrivers(this.drivers, z.id),
+          waitlistCount: await countWaitlisted(this.drivers, z.id),
+        })),
+      ),
     };
   }
 
@@ -193,6 +207,8 @@ export class GeographyService {
     const saved = await this.zones.save(zone);
     await this.audit.logReq(req, 'zone.update', 'zone', id, before, { ...saved, polygon: `${saved.polygon?.length ?? 0} points` });
     this.rt.emitToOps('zone.updated', { id });
+    // a new driver limit means places may have opened: couriers waiting for this zone are invited
+    if (dto.driverCapacity !== undefined && (before as any).driverCapacity !== saved.driverCapacity) this.events.emit(Events.ZONE_CAPACITY_CHANGED, { zoneId: id });
     return saved;
   }
 

@@ -12,8 +12,9 @@ import {
   Zone,
 } from '../database/entities';
 import { ActorType, DocStatus, DriverDocType, DriverStatus, NotificationChannel, UserStatus, UserType, VerificationMethod } from '../common/enums';
-import { ActorRef, Events, StatusChangedEvent } from '../common/contracts';
+import { ActorRef, Events, StatusChangedEvent, SubjectRegisteredEvent } from '../common/contracts';
 import { registrationZoneFor } from './zone-rules';
+import { countWaitlisted, countZoneDrivers, holdsPlace, isWaitlisted, listWaitlisted } from './zone-capacity';
 import { SettingsService } from '../settings/settings.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.module';
@@ -197,6 +198,7 @@ export class DriverCoreService {
       const docs = await this.requiredDocState(p.id);
       for (const d of docs) if (!d.valid) reasons.push(d.expired ? `${d.type} has expired` : `${d.type} is ${d.status ?? 'missing'}`);
     }
+    if (isWaitlisted(p.meta)) reasons.unshift('You are on the waiting list for your zone. You will be invited to upload your documents when a place opens.');
     if (!p.zoneIds?.length) reasons.push('No zone assigned');
     if (!p.ontarioPlatformWorkerNoticeAcked) reasons.push('Ontario platform worker notice not acknowledged');
     return { ok: reasons.length === 0, reasons };
@@ -210,7 +212,92 @@ export class DriverCoreService {
     return registrationZoneFor(p, zone);
   }
 
+  // ------------------------------------------------------------------ zone capacity and the waiting list
+
+  /** Drivers holding a place in the zone (overridable in tests; see zone-capacity.ts for the rule). */
+  zoneOccupancy(zoneId: string): Promise<number> {
+    return countZoneDrivers(this.profiles, zoneId);
+  }
+
+  waitlistedFor(zoneId: string): Promise<DriverProfile[]> {
+    return listWaitlisted(this.profiles, zoneId);
+  }
+
+  waitlistCount(zoneId: string): Promise<number> {
+    return countWaitlisted(this.profiles, zoneId);
+  }
+
+  /** How full a zone is: its limit, how many hold a place, whether it is full, how many places are free (null = no limit). */
+  async zoneRoom(zoneId: string, exclude?: DriverProfile) {
+    const zone = await this.zoneRepo.findOne({ where: { id: zoneId } });
+    if (!zone) return null;
+    const capacity = zone.driverCapacity ?? null;
+    if (capacity === null) return { zone, capacity, occupied: 0, full: false, free: null as number | null };
+    // someone who already holds a place does not count against themselves
+    const occupied = Math.max(0, (await this.zoneOccupancy(zoneId)) - (exclude && holdsPlace(exclude, zoneId) ? 1 : 0));
+    return { zone, capacity, occupied, full: occupied >= capacity, free: Math.max(0, capacity - occupied) as number | null };
+  }
+
+  /**
+   * A courier has just signed up. When the zone they signed up from is full they go on its waiting list (and nothing else happens: no documents,
+   * no verification, no going online) until staff make room. Returns true when the courier is waiting. Safe to call again.
+   */
+  async waitlistIfFull(p: DriverProfile): Promise<boolean> {
+    if (isWaitlisted(p.meta)) return true;
+    if (p.meta?.waitlist) return false; // already invited
+    const zoneId = p.meta?.registrationZoneId as string | undefined;
+    if (!zoneId) return false;
+    const room = await this.zoneRoom(zoneId, p);
+    if (!room || !room.full) return false;
+    p.meta = { ...(p.meta ?? {}), waitlist: { zoneId, joinedAt: new Date().toISOString(), invitedAt: null } };
+    await this.profiles.save(p);
+    await this.notifyDriver(p, 'driver.waitlisted', { zone: room.zone.name }, { zoneId }, {
+      title: `You are on the waiting list for ${room.zone.name}`,
+      body: `${room.zone.name} is full right now. We will invite you to upload your documents as soon as a place opens.`,
+    }).catch(() => undefined);
+    return true;
+  }
+
+  /** What the app shows a waiting courier: which zone and their place in the line. */
+  async waitlistInfo(p: DriverProfile): Promise<{ zoneId: string; zoneName: string | null; position: number; ahead: number } | null> {
+    if (!isWaitlisted(p.meta)) return null;
+    const zoneId = p.meta.waitlist.zoneId as string;
+    const [zone, line] = await Promise.all([this.zoneRepo.findOne({ where: { id: zoneId } }), this.waitlistedFor(zoneId)]);
+    const index = line.findIndex((x) => x.id === p.id);
+    const ahead = index >= 0 ? index : line.length;
+    return { zoneId, zoneName: zone?.name ?? null, position: ahead + 1, ahead };
+  }
+
+  /**
+   * Places have opened in the zone (staff raised its limit, or someone left): invite the longest-waiting couriers, one per free place. An invited
+   * courier is told, holds a place from now on, and goes through the normal registration policy (instant, staff queue or Certn check) as if they had
+   * just signed up. Returns how many were invited.
+   */
+  async inviteFromWaitlist(zoneId: string): Promise<number> {
+    const room = await this.zoneRoom(zoneId);
+    if (!room) return 0;
+    const waiting = await this.waitlistedFor(zoneId);
+    if (!waiting.length) return 0;
+    const places = room.free === null ? waiting.length : room.free;
+    let invited = 0;
+    for (const p of waiting.slice(0, places)) {
+      p.meta = { ...(p.meta ?? {}), waitlist: { ...p.meta.waitlist, invitedAt: new Date().toISOString() } };
+      await this.profiles.save(p);
+      await this.notifyDriver(p, 'driver.waitlist_invite', { zone: room.zone.name }, { zoneId }, {
+        title: `A place opened in ${room.zone.name}`,
+        body: `You are in. Open Forky Driver and upload your documents to complete your verification.`,
+      }).catch(() => undefined);
+      this.rt.emitToDriver(p.id, 'driver.waitlist_invited', { zoneId, zone: room.zone.name });
+      await this.events.emitAsync(Events.VERIFICATION_SUBJECT_REGISTERED, { audience: 'DRIVER', id: p.id } as SubjectRegisteredEvent).catch(() => undefined);
+      invited++;
+    }
+    return invited;
+  }
+
   async changeStatus(p: DriverProfile, to: DriverStatus, actor: ActorRef, reason?: string | null, extra: Partial<DriverProfile> = {}) {
+    if ((to === DriverStatus.APPROVED || to === DriverStatus.ACTIVE) && isWaitlisted(p.meta)) {
+      throw new BadRequestException('This driver is on the waiting list for a full zone. Raise the zone\'s driver limit first: they are then invited to upload their documents.');
+    }
     const from = p.status;
     p.status = to;
     p.statusReason = reason ?? null;

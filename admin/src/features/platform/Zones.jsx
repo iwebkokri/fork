@@ -117,6 +117,7 @@ export default function Zones() {
         perKmFee: "",
         minimumOrder: "",
         targetDrivers: 20,
+        driverCapacity: "",
         serviceHours: {},
       })}
       toForm={(z) => ({
@@ -131,6 +132,7 @@ export default function Zones() {
         perKmFee: z.perKmFee ?? "",
         minimumOrder: z.minimumOrder ?? "",
         targetDrivers: z.targetDrivers ?? 0,
+        driverCapacity: z.driverCapacity ?? "",
         serviceHours: z.serviceHours || {},
       })}
       searchPlaceholder="Search zones…"
@@ -156,6 +158,18 @@ export default function Zones() {
         { key: "minimumOrder", title: "Min. order", render: (r) => money(r.effective?.minimumOrder) },
         { key: "radius", title: "Radius", render: (r) => (r.effective?.radiusKm != null ? `${r.effective.radiusKm} km` : "—") },
         { key: "targetDrivers", title: "Target drivers" },
+        {
+          key: "driverCount",
+          title: "Drivers",
+          render: (r) => (
+            <span>
+              {r.driverCount ?? 0}
+              {r.driverCapacity != null ? ` / ${r.driverCapacity}` : ""}
+              {r.driverCapacity != null && (r.driverCount ?? 0) >= r.driverCapacity ? <Badge tone="warning" className="ms-8">Full</Badge> : null}
+              {r.waitlistCount > 0 ? <Badge tone="info" className="ms-8">{r.waitlistCount} waiting</Badge> : null}
+            </span>
+          ),
+        },
         {
           key: "busyMode",
           title: "Busy mode",
@@ -196,6 +210,8 @@ export default function Zones() {
         perKmFee: numOrNull(v.perKmFee),
         minimumOrder: numOrNull(v.minimumOrder),
         targetDrivers: v.targetDrivers === "" ? undefined : Number(v.targetDrivers),
+        // empty = no limit; a higher limit invites the couriers waiting for this zone
+        driverCapacity: v.driverCapacity === "" || v.driverCapacity == null ? null : Number(v.driverCapacity),
         serviceHours: v.serviceHours || {},
       })}
       renderForm={({ f, row }) => (
@@ -222,6 +238,7 @@ export default function Zones() {
               <NumberInput col={6} label="Per-km fee" prefix="$" min={0} {...f.bind("perKmFee")} />
               <NumberInput col={6} label="Minimum order" prefix="$" min={0} {...f.bind("minimumOrder")} />
               <NumberInput col={6} label="Target drivers" step="1" min={0} {...f.bind("targetDrivers")} />
+              <NumberInput col={6} label="Driver limit" step="1" min={0} hint="Empty = no limit. When the zone is full, new sign-ups wait on a waiting list; raising this invites them." {...f.bind("driverCapacity")} />
               <NumberInput col={6} label="Delivery radius" suffix="km" min={0} {...f.bind("deliveryRadiusKm")} />
               <NumberInput col={6} label="Max radius" suffix="km" min={0} {...f.bind("maxDeliveryRadiusKm")} />
             </FormRow>

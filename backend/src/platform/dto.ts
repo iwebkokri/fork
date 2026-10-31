@@ -106,6 +106,8 @@ export class ZoneTuningDto {
   @IsOptional() @IsBoolean() busyMode?: boolean;
   /** Open for drivers to join (they pick it themselves on the driver app's map, up to 4 zones each). */
   @IsOptional() @IsBoolean() driversOpen?: boolean;
+  /** how many drivers the zone takes; empty / null = no limit. Beyond it, new sign-ups wait on a waiting list until a place opens. */
+  @IsOptional() @IsInt() @Min(0) @Max(100000) driverCapacity?: number | null;
   @IsOptional() @IsNumber() @Min(1) @Max(5) busyMultiplier?: number;
   @IsOptional() @IsNumber() @Min(0) @Max(100) busyRadiusKm?: number | null;
   @IsOptional() @IsInt() @Min(0) @Max(1000) targetDrivers?: number;

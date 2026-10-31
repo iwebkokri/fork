@@ -46,6 +46,8 @@ jobs:
         run: npx ts-node --transpile-only test/driver-zones.test.ts
       - name: A courier's signup zone is switched on at approval (never replaces zones staff chose; with fakes)
         run: npx ts-node --transpile-only test/driver-registration-zone.test.ts
+      - name: Zone driver limits and the waiting list (full zone -> wait, raise the limit -> invite the longest waiting; with fakes)
+        run: npx ts-node --transpile-only test/driver-waitlist.test.ts
 
   # The production schema comes from migrations, so they must exactly match the entities: apply them to an empty database and
   # fail if TypeORM still sees a difference. Fix: npm run migration:generate -- src/database/migrations/<Name>  (commit the file)

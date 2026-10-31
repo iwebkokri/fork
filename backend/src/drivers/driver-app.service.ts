@@ -26,6 +26,7 @@ import { AcceptanceService } from '../dispatch/acceptance.service';
 import { MaskedCallAdapter } from './adapters/masked-call.adapter';
 import { lazyService, maskAccount, maskSin, round2, tzStart } from './drivers.util';
 import { checkZoneSelection, DEFAULT_MAX_ZONES } from './zone-rules';
+import { isWaitlisted } from './zone-capacity';
 import {
   AvailableShiftsQuery,
   BankDto,
@@ -112,6 +113,8 @@ export class DriverAppService {
       onTimeRate: p.onTimeRate,
       totalTrips: p.totalTrips,
       payoutSchedule: p.payoutSchedule,
+      // on a full zone's waiting list (not invited yet): which zone and their place in the line, otherwise null
+      waitlist: await this.core.waitlistInfo(p),
       // the courier's own saved payout / tax details, masked: only the last digits are ever stored, so only those can be shown back
       bank: p.bank ? { institution: p.bank.institution ?? null, transit: p.bank.transit ?? null, account: maskAccount(p.bank.accountLast4), holder: p.bank.holder ?? null, debitCardLast4: p.bank.debitCardLast4 ?? null } : null,
       tax: p.taxInfo ? { legalName: p.taxInfo.legalName ?? null, address: p.taxInfo.address ?? null, sin: maskSin(p.taxInfo), collectedAt: p.taxInfo.collectedAt ?? null } : null,
@@ -144,6 +147,12 @@ export class DriverAppService {
   }
 
   // ------------------------------------------------------------------ documents
+  /** A courier on a zone's waiting list uploads documents only after they are invited. */
+  private async assertNotWaitlisted(driverId: string) {
+    const p = await this.core.getProfile(driverId);
+    if (isWaitlisted(p.meta)) throw new ForbiddenException('You are on the waiting list for your zone. You will be invited to upload your documents when a place opens.');
+  }
+
   async listDocuments(driverId: string) {
     const required = await this.core.requiredDocState(driverId);
     const all = await this.core.docs.find({ where: { driverId }, order: { createdAt: 'DESC' } });
@@ -151,6 +160,7 @@ export class DriverAppService {
   }
 
   async uploadDocument(driverId: string, dto: UploadDocumentDto) {
+    await this.assertNotWaitlisted(driverId);
     const doc = await this.core.docs.save(
       this.core.docs.create({ driverId, type: dto.type, fileUrl: dto.fileUrl, fileName: dto.fileName ?? null, expiresAt: dto.expiresAt ?? null }),
     );
@@ -160,6 +170,7 @@ export class DriverAppService {
   }
 
   async replaceDocument(driverId: string, docId: string, dto: ReplaceDocumentDto) {
+    await this.assertNotWaitlisted(driverId);
     const doc = await this.core.docs.findOne({ where: { id: docId, driverId } });
     if (!doc) throw new BadRequestException('Document not found');
     doc.fileUrl = dto.fileUrl;
@@ -258,7 +269,10 @@ export class DriverAppService {
         if (mine.length) w.orWhere('z.id IN (:...mine)', { mine });
       }),
     );
-    const rows = await qb.orderBy('z.name', 'ASC').getMany();
+    let rows = await qb.orderBy('z.name', 'ASC').getMany();
+    // a zone that already has all the drivers it takes is not offered (the ones the driver already has stay)
+    const rooms = await Promise.all(rows.map((z) => (mine.includes(z.id) || z.driverCapacity == null ? null : this.core.zoneRoom(z.id))));
+    rows = rows.filter((_, i) => !rooms[i]?.full);
     return {
       max: this.maxZones(),
       count: mine.length,
@@ -283,10 +297,13 @@ export class DriverAppService {
     if (![DriverStatus.APPROVED, DriverStatus.ACTIVE].includes(p.status)) throw new ForbiddenException('Your account must be approved before you can choose zones.');
     const current = p.zoneIds ?? [];
     const rows = await this.zones.find({ where: { id: In([...new Set([...zoneIds, ...current])]) } });
+    // only the zones being added can be refused for being full
+    const full = new Set<string>();
+    for (const z of rows) if (!current.includes(z.id) && zoneIds.includes(z.id) && z.driverCapacity != null && (await this.core.zoneRoom(z.id))?.full) full.add(z.id);
     const next = checkZoneSelection({
       current,
       requested: zoneIds,
-      zones: rows.map((z) => ({ id: z.id, name: z.name, cityId: z.cityId, active: z.active, driversOpen: !!z.driversOpen })),
+      zones: rows.map((z) => ({ id: z.id, name: z.name, cityId: z.cityId, active: z.active, driversOpen: !!z.driversOpen, full: full.has(z.id) })),
       driverCityId: p.cityId ?? null,
       max: this.maxZones(),
       onlineZoneId: p.isOnline ? p.activeZoneId : null,

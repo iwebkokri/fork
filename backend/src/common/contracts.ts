@@ -348,6 +348,8 @@ export const Events = {
    * registration policy (instant activation, manual queue or Certn check) and answers with what the person should be told.
    */
   VERIFICATION_SUBJECT_REGISTERED: 'verification.subject_registered',
+  /** payload { zoneId }: staff changed a zone's driver limit. The drivers module invites waitlisted couriers into the places that opened up. */
+  ZONE_CAPACITY_CHANGED: 'zone.capacity_changed',
 } as const;
 
 export interface SubjectRegisteredEvent {
