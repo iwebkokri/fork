@@ -29,6 +29,11 @@ export class DriverTripController {
     return this.app.activeTrip(user.driverId!);
   }
 
+  @Post(':orderId/still-here')
+  stillHere(@CurrentUser() user: AuthUser, @Param('orderId') orderId: string) {
+    return this.app.confirmPresence(user.driverId!, orderId);
+  }
+
   @Post(':orderId/arrived-restaurant')
   arrivedRestaurant(@CurrentUser() user: AuthUser, @Param('orderId') orderId: string, @Body() dto: StepDto) {
     return this.app.arrivedRestaurant(user.driverId!, orderId, dto);

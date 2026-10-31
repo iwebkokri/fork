@@ -82,6 +82,7 @@ How a new driver is admitted (instant, manual or automatic), Force verification,
 | POST | `/trip/offer/:offerId/accept` | - | Order |
 | POST | `/trip/offer/:offerId/decline` | reason? | `{ok}` |
 | GET | `/trip/active` | - | tracking view (DRIVER-masked) or null. Includes `dropoff:{method,contactless,notes,accessCode,proofRule,proofLabel,exceptionReasons}` (`notes` and `accessCode` only once the food is picked up; the access code never before) and `maskedCall` |
+| POST | `/trip/:orderId/still-here` | - | `{ok, pending:false, nextCheckAt?}`. Answer to the "are you still on your way?" check (see below). `{ok:false, expired:true}` if the time ran out |
 | POST | `/trip/:orderId/arrived-restaurant` | lat?,lng? | Order |
 | POST | `/trip/:orderId/picked-up` | code,lat?,lng? | Order (PICKED_UP) |
 | POST | `/trip/:orderId/arrived-customer` | lat?,lng? | Order |
@@ -101,7 +102,11 @@ How a new driver is admitted (instant, manual or automatic), Force verification,
 | POST | `/sos` | orderId?,lat?,lng?,message? | SosAlert; ops get `sos.alert` |
 | GET | `/sos` | - | my SOS history |
 
-Realtime: `driver.status`, `driver.offer`, `driver.offer.cancelled`, `driver.supply_alert` (driver room/zone room); ops room receives `driver.location`, `driver.status`, `sos.alert`.
+### Are you still on your way? (presence check)
+
+While a driver is on the way to the restaurant, the server expects the pickup run to take as long as the accepted offer's pickup distance implies (28 km/h, at least `driver.presence.minMinutes`). If the driver has not arrived after `driver.presence.multiplier` x that time (default 2x, so 3 min away means a question at 6 min), the driver app gets socket event `driver.presence_check` `{orderId, code, restaurant, deadlineAt, seconds}` plus a push, and `GET /driver/trip/active` carries `presenceCheck:{deadlineAt, seconds}` until it is answered. The driver confirms with `POST /driver/trip/:orderId/still-here`. With no answer by the deadline (`driver.presence.confirmSeconds`, default 90) the order is unassigned (`OrdersService.unassignDriver`, redispatch) and offered to other drivers; the driver gets `driver.presence_timeout` and `order.unassigned` and a push. A confirmed driver is asked again after another expected-pickup interval if still not there. Not asked: drivers already within 150 m of the restaurant, orders past arrival (`driverArrivedRestaurantAt`), own-driver and pickup orders. Settings (all optional): `driver.presence.enabled` (true), `.multiplier` (2), `.minMinutes` (2), `.confirmSeconds` (90). Code: `backend/src/drivers/driver-presence.service.ts` (cron every 20 s).
+
+Realtime: `driver.presence_check`, `driver.presence_timeout`, `driver.status`, `driver.offer`, `driver.offer.cancelled`, `driver.supply_alert` (driver room/zone room); ops room receives `driver.location`, `driver.status`, `sos.alert`.
 
 ## Acceptance score (rolling 14 days)
 

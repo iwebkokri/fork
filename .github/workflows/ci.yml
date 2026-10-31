@@ -38,6 +38,8 @@ jobs:
         run: npx ts-node --transpile-only test/cors.test.ts
       - name: Unit tests - website settings (schema, validation, robots / sitemap / llms.txt / structured data generators)
         run: npx ts-node --transpile-only test/site.test.ts
+      - name: Presence check ("are you still on your way?": asked at 2x the expected pickup time, unassigned without an answer; with fakes)
+        run: npx ts-node --transpile-only test/driver-presence.test.ts
 
   # The production schema comes from migrations, so they must exactly match the entities: apply them to an empty database and
   # fail if TypeORM still sees a difference. Fix: npm run migration:generate -- src/database/migrations/<Name>  (commit the file)

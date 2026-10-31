@@ -21,6 +21,7 @@ import { OrdersService } from '../orders/orders.service';
 import { ProofService } from '../orders/proof.service';
 import { LedgerService } from '../orders/ledger.service';
 import { DriverCoreService } from './driver-core.service';
+import { DriverPresenceService } from './driver-presence.service';
 import { AcceptanceService } from '../dispatch/acceptance.service';
 import { MaskedCallAdapter } from './adapters/masked-call.adapter';
 import { lazyService, maskAccount, round2, tzStart } from './drivers.util';
@@ -56,6 +57,7 @@ export class DriverAppService {
     private ledger: LedgerService,
     private acceptance: AcceptanceService,
     private maskedCallAdapter: MaskedCallAdapter,
+    private presence: DriverPresenceService,
     @InjectRepository(Order) private orders: Repository<Order>,
     @InjectRepository(DriverShift) private shifts: Repository<DriverShift>,
     @InjectRepository(SosAlert) private sosRepo: Repository<SosAlert>,
@@ -319,7 +321,12 @@ export class DriverAppService {
     const view = await this.ordersService.trackingView(o.id, 'DRIVER');
     const queue = sorted.slice(1).map((q) => ({ id: q.id, code: q.code, status: q.status, restaurant: q.restaurant?.name ?? null, pickupAfterCurrentDelivery: [OrderStatus.PICKED_UP, OrderStatus.ON_THE_WAY].includes(o.status) && ![OrderStatus.PICKED_UP, OrderStatus.ON_THE_WAY].includes(q.status) }));
     // masked call: the driver never sees real numbers; POST /driver/trip/:orderId/call opens a proxy session
-    return { ...view, queue, stackedOrders: queue.length, maskedCall: { customer: true, restaurant: true, path: `/driver/trip/${o.id}/call` } };
+    return { ...view, queue, stackedOrders: queue.length, presenceCheck: this.presence.openCheck(o), maskedCall: { customer: true, restaurant: true, path: `/driver/trip/${o.id}/call` } };
+  }
+
+  /** The driver says they are still on their way (answer to the "are you still here?" check). */
+  async confirmPresence(driverId: string, orderId: string) {
+    return this.presence.confirm(driverId, orderId);
   }
 
   async arrivedRestaurant(driverId: string, orderId: string, dto: StepDto) {
