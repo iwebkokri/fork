@@ -109,6 +109,7 @@ export default function Zones() {
         cityId: cityOptions[0]?.value || "",
         name: "",
         active: true,
+        driversOpen: false,
         polygon: [],
         deliveryRadiusKm: "",
         maxDeliveryRadiusKm: "",
@@ -122,6 +123,7 @@ export default function Zones() {
         cityId: z.cityId,
         name: z.name,
         active: z.active,
+        driversOpen: !!z.driversOpen,
         polygon: z.polygon || [],
         deliveryRadiusKm: z.deliveryRadiusKm ?? "",
         maxDeliveryRadiusKm: z.maxDeliveryRadiusKm ?? "",
@@ -159,6 +161,7 @@ export default function Zones() {
           title: "Busy mode",
           render: (r) => (r.busyMode ? <Badge tone="warning">Busy x{r.busyMultiplier}</Badge> : <span className="text-secondary-light">Normal</span>),
         },
+        { key: "driversOpen", title: "Drivers", render: (r) => <BoolBadge value={!!r.driversOpen} yes="Open to join" no="Closed" /> },
         { key: "active", title: "Status", render: (r) => <BoolBadge value={r.active} yes="Active" no="Inactive" /> },
       ]}
       headerExtra={({ list }) => (
@@ -179,6 +182,7 @@ export default function Zones() {
         cityId: v.cityId,
         name: v.name,
         active: !!v.active,
+        driversOpen: !!v.driversOpen,
         ...(v.polygon?.length >= 3
           ? {
               polygon: v.polygon,
@@ -222,6 +226,7 @@ export default function Zones() {
               <NumberInput col={6} label="Max radius" suffix="km" min={0} {...f.bind("maxDeliveryRadiusKm")} />
             </FormRow>
             <Switch label="Active" {...f.bindCheck("active")} />
+            <Switch label="Open for drivers to join (shown on the driver app's map, up to 4 zones per driver)" {...f.bindCheck("driversOpen")} />
             <h6 className="text-md mb-12">Service hours</h6>
             <ServiceHours value={f.values.serviceHours} onChange={(h) => f.set("serviceHours", h)} />
           </div>

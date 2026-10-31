@@ -28,6 +28,12 @@ export function maskAccount(v?: string | null): string | null {
   return v ? `****${v.slice(-4)}` : null;
 }
 
+/** A SIN for the courier's own screen: everything hidden except the last four digits (***-**5-678). Older records only kept three. */
+export function maskSin(t?: { sinLast4?: string | null; sinLast3?: string | null } | null): string | null {
+  if (t?.sinLast4 && /^\d{4}$/.test(t.sinLast4)) return `***-**${t.sinLast4[0]}-${t.sinLast4.slice(1)}`;
+  return t?.sinLast3 ? `***-***-${t.sinLast3}` : null;
+}
+
 export function shortName(first?: string | null, last?: string | null): string {
   return `${first ?? ''} ${last ? last[0] + '.' : ''}`.trim();
 }

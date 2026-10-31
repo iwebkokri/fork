@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ModuleRef } from '@nestjs/core';
-import { In, Repository } from 'typeorm';
+import { Brackets, In, Repository } from 'typeorm';
 import {
   DriverLocationLog,
   DriverProfile,
@@ -24,7 +24,8 @@ import { DriverCoreService } from './driver-core.service';
 import { DriverPresenceService } from './driver-presence.service';
 import { AcceptanceService } from '../dispatch/acceptance.service';
 import { MaskedCallAdapter } from './adapters/masked-call.adapter';
-import { lazyService, maskAccount, round2, tzStart } from './drivers.util';
+import { lazyService, maskAccount, maskSin, round2, tzStart } from './drivers.util';
+import { checkZoneSelection, DEFAULT_MAX_ZONES } from './zone-rules';
 import {
   AvailableShiftsQuery,
   BankDto,
@@ -111,6 +112,9 @@ export class DriverAppService {
       onTimeRate: p.onTimeRate,
       totalTrips: p.totalTrips,
       payoutSchedule: p.payoutSchedule,
+      // the courier's own saved payout / tax details, masked: only the last digits are ever stored, so only those can be shown back
+      bank: p.bank ? { institution: p.bank.institution ?? null, transit: p.bank.transit ?? null, account: maskAccount(p.bank.accountLast4), holder: p.bank.holder ?? null, debitCardLast4: p.bank.debitCardLast4 ?? null } : null,
+      tax: p.taxInfo ? { legalName: p.taxInfo.legalName ?? null, address: p.taxInfo.address ?? null, sin: maskSin(p.taxInfo), collectedAt: p.taxInfo.collectedAt ?? null } : null,
       ontarioNoticeAcked: p.ontarioPlatformWorkerNoticeAcked,
       insulatedBagConfirmed: p.insulatedBagConfirmed,
       onboarding: checklist,
@@ -188,9 +192,11 @@ export class DriverAppService {
 
   async setTax(driverId: string, dto: TaxInfoDto) {
     const p = await this.core.getProfile(driverId);
-    p.taxInfo = { sinLast3: dto.sin.replace(/\D/g, '').slice(-3), legalName: dto.legalName, address: dto.address, collectedAt: new Date().toISOString() };
+    const sinDigits = dto.sin.replace(/\D/g, '');
+    // the full SIN is never stored: only its last four digits (the last three are kept too, for the staff console and the onboarding checklist)
+    p.taxInfo = { sinLast3: sinDigits.slice(-3), sinLast4: sinDigits.slice(-4), legalName: dto.legalName, address: dto.address, collectedAt: new Date().toISOString() };
     await this.core.profiles.save(p);
-    return { legalName: p.taxInfo.legalName, sin: `***-***-${p.taxInfo.sinLast3}`, collectedAt: p.taxInfo.collectedAt };
+    return { legalName: p.taxInfo.legalName, sin: maskSin(p.taxInfo), collectedAt: p.taxInfo.collectedAt };
   }
 
   // ------------------------------------------------------------------ training + quiz
@@ -235,14 +241,72 @@ export class DriverAppService {
   }
 
   // ------------------------------------------------------------------ online / offline / zones
+  /** How many zones one driver may have (setting `driver.maxZones`, default 4). */
+  private maxZones(): number {
+    const n = Math.floor(Number(this.core.settings.get<number>('driver.maxZones', DEFAULT_MAX_ZONES)));
+    return Number.isFinite(n) && n >= 1 ? n : DEFAULT_MAX_ZONES;
+  }
+
+  /** `GET /driver/zones`: the zones the driver can pick from on the map: the ones staff opened for drivers in their city, plus the ones they already have. */
+  async myZones(driverId: string) {
+    const p = await this.core.getProfile(driverId);
+    const mine = p.zoneIds ?? [];
+    const qb = this.zones.createQueryBuilder('z').where('z.active = true');
+    qb.andWhere(
+      new Brackets((w) => {
+        w.where(p.cityId ? 'z.driversOpen = true AND z.cityId = :city' : 'z.driversOpen = true', { city: p.cityId });
+        if (mine.length) w.orWhere('z.id IN (:...mine)', { mine });
+      }),
+    );
+    const rows = await qb.orderBy('z.name', 'ASC').getMany();
+    return {
+      max: this.maxZones(),
+      count: mine.length,
+      canJoin: [DriverStatus.APPROVED, DriverStatus.ACTIVE].includes(p.status),
+      onlineZoneId: p.isOnline ? (p.activeZoneId ?? null) : null,
+      zones: rows.map((z) => ({
+        id: z.id,
+        name: z.name,
+        cityId: z.cityId,
+        centerLat: z.centerLat,
+        centerLng: z.centerLng,
+        polygon: z.polygon,
+        open: !!z.driversOpen,
+        joined: mine.includes(z.id),
+        busy: !!z.busyMode,
+      })),
+    };
+  }
+
   async setZones(driverId: string, zoneIds: string[]) {
     const p = await this.core.getProfile(driverId);
-    const found = await this.zones.count({ where: { id: In(zoneIds) } });
-    if (found !== new Set(zoneIds).size) throw new BadRequestException('One or more zones do not exist');
-    if (!zoneIds.every((z) => p.zoneIds.includes(z))) throw new ForbiddenException('You are only approved for your assigned zones - contact support to add a zone');
-    p.zoneIds = zoneIds;
+    if (![DriverStatus.APPROVED, DriverStatus.ACTIVE].includes(p.status)) throw new ForbiddenException('Your account must be approved before you can choose zones.');
+    const current = p.zoneIds ?? [];
+    const rows = await this.zones.find({ where: { id: In([...new Set([...zoneIds, ...current])]) } });
+    const next = checkZoneSelection({
+      current,
+      requested: zoneIds,
+      zones: rows.map((z) => ({ id: z.id, name: z.name, cityId: z.cityId, active: z.active, driversOpen: !!z.driversOpen })),
+      driverCityId: p.cityId ?? null,
+      max: this.maxZones(),
+      onlineZoneId: p.isOnline ? p.activeZoneId : null,
+    });
+    p.zoneIds = next;
+    if (p.activeZoneId && !next.includes(p.activeZoneId)) p.activeZoneId = null;
     await this.core.profiles.save(p);
-    return { zoneIds: p.zoneIds };
+    return { zoneIds: p.zoneIds, count: p.zoneIds.length, max: this.maxZones() };
+  }
+
+  /** `POST /driver/zones/:zoneId`: add one zone (one tap on the map). */
+  async joinZone(driverId: string, zoneId: string) {
+    const p = await this.core.getProfile(driverId);
+    return this.setZones(driverId, [...new Set([...(p.zoneIds ?? []), zoneId])]);
+  }
+
+  /** `DELETE /driver/zones/:zoneId`: remove one zone. */
+  async leaveZone(driverId: string, zoneId: string) {
+    const p = await this.core.getProfile(driverId);
+    return this.setZones(driverId, (p.zoneIds ?? []).filter((z) => z !== zoneId));
   }
 
   async goOnline(driverId: string, dto: GoOnlineDto) {

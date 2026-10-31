@@ -1,4 +1,4 @@
-import { Body, Get, Param, Patch, Post, Put } from '@nestjs/common';
+import { Body, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
 import { CurrentUser, DriverController } from '../common/decorators';
 import { AuthUser } from '../common/auth.types';
 import { DriverAppService } from './driver-app.service';
@@ -72,6 +72,21 @@ export class DriverProfileController {
   @Post('training/:moduleId/quiz')
   submitQuiz(@CurrentUser() user: AuthUser, @Param('moduleId') moduleId: string, @Body() dto: QuizSubmitDto) {
     return this.app.submitQuiz(user.driverId!, moduleId, dto);
+  }
+
+  @Get('zones')
+  zones(@CurrentUser() user: AuthUser) {
+    return this.app.myZones(user.driverId!);
+  }
+
+  @Post('zones/:zoneId')
+  joinZone(@CurrentUser() user: AuthUser, @Param('zoneId', ParseUUIDPipe) zoneId: string) {
+    return this.app.joinZone(user.driverId!, zoneId);
+  }
+
+  @Delete('zones/:zoneId')
+  leaveZone(@CurrentUser() user: AuthUser, @Param('zoneId', ParseUUIDPipe) zoneId: string) {
+    return this.app.leaveZone(user.driverId!, zoneId);
   }
 
   @Put('zones')

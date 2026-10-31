@@ -160,6 +160,10 @@ export class Zone extends BaseEntity {
   @Column({ default: false })
   busyMode: boolean;
 
+  /** Open for drivers to join: shown (highlighted) on the driver app's zone map, where a driver can add it to their profile (up to driver.maxZones, default 4). */
+  @Column({ default: false })
+  driversOpen: boolean;
+
   @PctColumn({ default: 1 })
   busyMultiplier: number;
 

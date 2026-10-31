@@ -40,6 +40,10 @@ jobs:
         run: npx ts-node --transpile-only test/site.test.ts
       - name: Presence check ("are you still on your way?": asked at 2x the expected pickup time, unassigned without an answer; with fakes)
         run: npx ts-node --transpile-only test/driver-presence.test.ts
+      - name: What a courier sees of their own SIN / bank account (last four digits only)
+        run: npx ts-node --transpile-only test/driver-masking.test.ts
+      - name: Driver zones (open for drivers, up to 4 each, own city, keep closed ones, not the one you are online in; with fakes)
+        run: npx ts-node --transpile-only test/driver-zones.test.ts
 
   # The production schema comes from migrations, so they must exactly match the entities: apply them to an empty database and
   # fail if TypeORM still sees a difference. Fix: npm run migration:generate -- src/database/migrations/<Name>  (commit the file)

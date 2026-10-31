@@ -104,6 +104,8 @@ export class ZoneTuningDto {
   @IsOptional() @IsNumber() @Min(0) @Max(500) minimumOrder?: number | null;
   @IsOptional() @IsObject() serviceHours?: Record<string, DayHoursDto>;
   @IsOptional() @IsBoolean() busyMode?: boolean;
+  /** Open for drivers to join (they pick it themselves on the driver app's map, up to 4 zones each). */
+  @IsOptional() @IsBoolean() driversOpen?: boolean;
   @IsOptional() @IsNumber() @Min(1) @Max(5) busyMultiplier?: number;
   @IsOptional() @IsNumber() @Min(0) @Max(100) busyRadiusKm?: number | null;
   @IsOptional() @IsInt() @Min(0) @Max(1000) targetDrivers?: number;

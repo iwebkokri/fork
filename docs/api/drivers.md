@@ -5,6 +5,10 @@ Permission column = `Module.DRIVERS` action (`view|create|edit|delete|approve|ex
 
 Enums: DriverStatus `APPLIED, DOCS_REVIEW, BACKGROUND_CHECK, TRAINING, APPROVED, ACTIVE, SUSPENDED, DEACTIVATED, REJECTED`; VehicleType `CAR, BIKE, E_BIKE, SCOOTER, ON_FOOT`; DriverDocType `LICENCE, VEHICLE_REGISTRATION, INSURANCE, PHOTO, WORK_ELIGIBILITY, BACKGROUND_CHECK, OTHER`; DocStatus `PENDING, APPROVED, REJECTED, EXPIRED`; Incentive type `PEAK_BOOST, QUEST, FIRST_WEEK, WEATHER, SUPPLY_ALERT`; Shift status `OPEN, BOOKED, STARTED, COMPLETED, MISSED, CANCELLED`; SOS status `OPEN, ACKNOWLEDGED, RESOLVED`; background check `NOT_STARTED, IN_PROGRESS, CLEAR, CONSIDER, FAILED`.
 
+## Delivery zones: staff open them, drivers pick them
+
+Staff switch **Open for drivers to join** on a zone (admin console, Platform > Zones, or `PATCH /admin/zones/:id {driversOpen:true}`). The driver app then highlights that zone on its map and a driver adds it with one tap (`POST /driver/zones/:zoneId`). Each driver can have at most `driver.maxZones` zones (default **4**); zones must be active, open and in the driver's city; a zone the driver already has stays theirs even if staff close sign-up later; a zone cannot be removed while the driver is online in it. Requires migration `AddZoneDriversOpen` (`zones.driversOpen`, default false).
+
 ## Admin `/admin/drivers` (staff)
 
 | Method | Path | Perm | Request | Response |
@@ -63,7 +67,7 @@ How a new driver is admitted (instant, manual or automatic), Force verification,
 
 | Method | Path | Request | Response |
 |---|---|---|---|
-| GET | `/profile` | - | profile + onboarding checklist |
+| GET | `/profile` | - | profile + onboarding checklist + the courier's own saved `bank` (`{institution, transit, account:"****1234", holder, debitCardLast4}`) and `tax` (`{legalName, address, sin:"***-***-318", collectedAt}`), both masked and `null` until saved |
 | PATCH | `/profile` | firstName,lastName,language,avatarUrl,vehicle fields,payoutSchedule | profile |
 | POST | `/notice/ack` | - | `{ok}` (Ontario platform worker notice) |
 | GET | `/checklist` | - | `{steps,missing,driverActions,percent,complete}` |
@@ -74,7 +78,10 @@ How a new driver is admitted (instant, manual or automatic), Force verification,
 | PUT | `/tax` | sin (last 3 kept),legalName,address | masked tax info |
 | GET | `/training` | - | modules (quiz without answers) + progress |
 | POST | `/training/:moduleId/quiz` | answers[] (index per question) | `{attempt,passed,score,progress}` |
-| PUT | `/zones` | zoneIds[] (subset of approved) | `{zoneIds}` |
+| GET | `/zones` | - | `{max, count, canJoin, onlineZoneId, zones:[{id,name,cityId,centerLat,centerLng,polygon,open,joined,busy}]}`: the zones staff opened for drivers in the driver's city, plus the ones the driver already has |
+| POST | `/zones/:zoneId` | - | `{zoneIds,count,max}`. Adds one zone. 403 if the zone is not open for drivers / is in another city / the driver is not approved yet; 400 above the cap |
+| DELETE | `/zones/:zoneId` | - | `{zoneIds,count,max}`. 400 while the driver is online in that zone |
+| PUT | `/zones` | zoneIds[] | `{zoneIds,count,max}`. Replaces the list under the same rules (a zone the driver already has can always be kept) |
 | POST | `/online` | zoneId?,lat?,lng? | `{isOnline,activeZoneId}`; 400 lists blocking reasons |
 | POST | `/offline` | - | `{isOnline:false}` (blocked while on trip) |
 | POST | `/location` | lat,lng,heading?,speed?,orderId? | `{ok,onTrip,etaMin?}` (WS `driver.location` also supported) |
